@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>After School · Automated Tests</title>
+  <style>
+    :root {
+      --bg: #F6F1E7;
+      --surface: #FFFDF8;
+      --ink: #1F1A17;
+      --muted: #6B625A;
+      --line: #E4DCCD;
+      --highlight: #F5D547;
+      --correct: #2F7A4B;
+      --wrong: #C2412D;
+    }
+
+    *, *::before, *::after {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100dvh;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: system-ui, "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", sans-serif;
+      font-size: 16px;
+      line-height: 1.6;
+    }
+
+    .wrap {
+      width: 100%;
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 24px 16px 48px;
+    }
+
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 16px;
+      margin-bottom: 20px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(22px, 3vw, 28px);
+    }
+
+    a {
+      color: var(--ink);
+    }
+
+    a:focus-visible {
+      outline: 3px solid var(--highlight);
+      outline-offset: 2px;
+    }
+
+    .summary {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 20px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 14px;
+    }
+
+    .summary.pass {
+      border-left: 6px solid var(--correct);
+    }
+
+    .summary.fail {
+      border-left: 6px solid var(--wrong);
+    }
+
+    .suite {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+
+    .suite h2 {
+      margin: 0 0 12px;
+      font-size: 18px;
+    }
+
+    .case {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      padding: 8px 0;
+      border-top: 1px solid var(--line);
+      overflow-wrap: anywhere;
+    }
+
+    .mark {
+      font-weight: 700;
+      flex: 0 0 auto;
+    }
+
+    .mark.pass {
+      color: var(--correct);
+    }
+
+    .mark.fail {
+      color: var(--wrong);
+    }
+
+    .err {
+      color: var(--wrong);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 14px;
+      margin-top: 4px;
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <header>
+      <h1>After School · Test Runner</h1>
+      <a href="../index.html">← 回首頁</a>
+    </header>
+    <div id="summary" class="summary">Running tests…</div>
+    <div id="results"></div>
+  </main>
+
+  <script src="../data/english-2000-data.js"></script>
+  <script type="module">
+    const suites = [];
+
+    /**
+     * Register a test suite.
+     * @param {string} name
+     * @param {(ctx: { test: (title: string, fn: () => void | Promise<void>) => void, assert: { ok: (v: unknown, msg?: string) => void, equal: (a: unknown, b: unknown, msg?: string) => void, deepEqual: (a: unknown, b: unknown, msg?: string) => void } }) => void} define
+     */
+    export function suite(name, define) {
+      const cases = [];
+      const assert = {
+        ok(value, msg = 'Expected truthy value') {
+          if (!value) throw new Error(msg);
+        },
+        equal(actual, expected, msg) {
+          if (!Object.is(actual, expected)) {
+            throw new Error(msg || `Expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+          }
+        },
+        deepEqual(actual, expected, msg) {
+          const a = JSON.stringify(actual);
+          const b = JSON.stringify(expected);
+          if (a !== b) {
+            throw new Error(msg || `Expected ${b}, got ${a}`);
+          }
+        },
+      };
+      define({
+        test(title, fn) {
+          cases.push({ title, fn });
+        },
+        assert,
+      });
+      suites.push({ name, cases });
+    }
+
+    window.__TEST_HARNESS__ = { suite };
+
+    await import('./smoke.test.js');
+
+    const summaryEl = document.getElementById('summary');
+    const resultsEl = document.getElementById('results');
+    let passed = 0;
+    let failed = 0;
+
+    for (const s of suites) {
+      const section = document.createElement('section');
+      section.className = 'suite';
+      const h2 = document.createElement('h2');
+      h2.textContent = s.name;
+      section.appendChild(h2);
+
+      for (const c of s.cases) {
+        const row = document.createElement('div');
+        row.className = 'case';
+        const mark = document.createElement('span');
+        const body = document.createElement('div');
+        const title = document.createElement('div');
+        title.textContent = c.title;
+        body.appendChild(title);
+
+        try {
+          await c.fn();
+          passed++;
+          mark.className = 'mark pass';
+          mark.textContent = '○ PASS';
+        } catch (err) {
+          failed++;
+          mark.className = 'mark fail';
+          mark.textContent = '✗ FAIL';
+          const errEl = document.createElement('div');
+          errEl.className = 'err';
+          errEl.textContent = err instanceof Error ? err.message : String(err);
+          body.appendChild(errEl);
+        }
+
+        row.appendChild(mark);
+        row.appendChild(body);
+        section.appendChild(row);
+      }
+
+      resultsEl.appendChild(section);
+    }
+
+    summaryEl.className = `summary ${failed === 0 ? 'pass' : 'fail'}`;
+    summaryEl.textContent = `${passed} passed, ${failed} failed (${passed + failed} total)`;
+    window.__TEST_RESULTS__ = { passed, failed, total: passed + failed };
+  </script>
+</body>
+</html>
