@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>After School · file:// AI Spike</title>
+  <style>
+    :root {
+      --bg: #F6F1E7;
+      --surface: #FFFDF8;
+      --ink: #1F1A17;
+      --muted: #6B625A;
+      --line: #E4DCCD;
+      --highlight: #F5D547;
+      --correct: #2F7A4B;
+      --wrong: #C2412D;
+    }
+
+    *, *::before, *::after {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100dvh;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: system-ui, "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", sans-serif;
+      font-size: 16px;
+      line-height: 1.7;
+    }
+
+    .wrap {
+      width: 100%;
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 24px 16px 48px;
+    }
+
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 16px;
+      margin-bottom: 20px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(22px, 3vw, 28px);
+    }
+
+    h2 {
+      margin: 0 0 12px;
+      font-size: 18px;
+    }
+
+    a {
+      color: var(--ink);
+    }
+
+    a:focus-visible, button:focus-visible, input:focus-visible {
+      outline: 3px solid var(--highlight);
+      outline-offset: 2px;
+    }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+
+    .muted {
+      color: var(--muted);
+      margin: 0 0 12px;
+    }
+
+    .kv {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 8px 16px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 14px;
+    }
+
+    .kv-item {
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--bg);
+      overflow-wrap: anywhere;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin: 12px 0;
+    }
+
+    button {
+      min-height: 48px;
+      padding: 0 20px;
+      border-radius: 12px;
+      border: 1px solid var(--ink);
+      background: var(--ink);
+      color: var(--surface);
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    button.secondary {
+      background: transparent;
+      color: var(--ink);
+      border-color: var(--line);
+    }
+
+    button:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+
+    .progress-wrap {
+      width: 100%;
+      height: 14px;
+      background: var(--bg);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      overflow: hidden;
+      margin: 12px 0 8px;
+    }
+
+    .progress-bar {
+      height: 100%;
+      width: 0%;
+      background: var(--highlight);
+      transition: width 150ms ease;
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 14px;
+      overflow-wrap: anywhere;
+    }
+
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    input[type="text"] {
+      flex: 1 1 240px;
+      min-height: 48px;
+      padding: 8px 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      font-size: 16px;
+      background: var(--surface);
+      color: var(--ink);
+    }
+
+    .status-pass {
+      color: var(--correct);
+      font-weight: 700;
+    }
+
+    .status-fail {
+      color: var(--wrong);
+      font-weight: 700;
+    }
+
+    pre {
+      margin: 0;
+      padding: 12px;
+      background: var(--bg);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <header>
+      <h1>After School · file:// AI Spike</h1>
+      <a href="../index.html">← 回首頁</a>
+    </header>
+
+    <section class="panel">
+      <h2>1. 執行環境檢查</h2>
+      <p class="muted">檢查 file:// 與伺服器模式下所需的 Web API 與 Blob Worker 能力。</p>
+      <div id="env-grid" class="kv"></div>
+    </section>
+
+    <section class="panel">
+      <h2>2. CDN 模型首次下載與快取驗證 (Blob URL Worker)</h2>
+      <p class="muted">本測試不含任何本機模型檔案。按下按鈕後才會從 jsDelivr / Hugging Face 下載量化嵌入模型（Xenova/all-MiniLM-L6-v2，約 23 MB）並在瀏覽器快取。</p>
+      <div class="actions">
+        <button id="btn-load" type="button">下載或從快取載入 AI 模型 (~23 MB)</button>
+        <button id="btn-refresh-cache" type="button" class="secondary">重新檢查快取狀態</button>
+        <button id="btn-clear-cache" type="button" class="secondary">清除模型快取</button>
+      </div>
+      <div class="progress-wrap" aria-label="模型下載進度">
+        <div id="progress-bar" class="progress-bar"></div>
+      </div>
+      <div id="progress-text" class="mono">尚未載入模型。</div>
+      <div id="cache-status" class="mono" style="margin-top: 8px;"></div>
+    </section>
+
+    <section class="panel">
+      <h2>3. 語意相似度測試（你說我猜原型）</h2>
+      <p class="muted">模型載入後，輸入英文描述測試與候選單字的餘弦相似度。</p>
+      <div class="row">
+        <input id="query-input" type="text" value="a quiet place with many books where students read and borrow" aria-label="英文描述">
+        <button id="btn-infer" type="button" disabled>計算相似度</button>
+      </div>
+      <pre id="infer-output">請先載入模型。</pre>
+    </section>
+  </main>
+
+  <script src="../js/ai/spike.js"></script>
+</body>
+</html>
