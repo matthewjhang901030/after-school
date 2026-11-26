@@ -8,8 +8,8 @@ Integrated browser-only English learning website for Taiwanese university studen
 
 ### Option A: Double-click (`file://`, recommended for quick review)
 1. Download and unzip the project folder (or clone the repository).
-2. Double-click `index.html` to open it directly in **Chrome** or **Microsoft Edge**.
-3. The core site and `tests/test.html` work immediately offline. AI features (`tests/ai-spike.html`) download the model from Hugging Face / jsDelivr CDN on first use with a progress bar and cache it in the browser.
+2. Double-click `index.html` to open it directly in **Chrome**, **Dia**, or **Microsoft Edge**.
+3. The core site and `tests/test.html` work immediately offline. AI features (`tests/ai-spike.html`) download models from Hugging Face / jsDelivr CDN on first use with a progress bar and cache them in the browser.
 
 ### Option B: VS Code Live Server (`http://`, needed for Service Worker & Chrome Prompt API)
 1. Open the project folder (`after_class`) in **Visual Studio Code**.
@@ -19,16 +19,17 @@ Integrated browser-only English learning website for Taiwanese university studen
 
 ## Project Status
 
-- **Current milestone:** M0 (`file://` refactor + AI Blob Worker / cache spike)
+- **Current milestone:** M3 (Design system, app shell, i18n zh-TW/en, storage + migrations, flashcards, Leitner 5-box schedule, TTS pronunciation, card CRUD + decks, and non-destructive course-data curation)
 - **Specification:** `docs/spec/part01.md` – `docs/spec/part11.md`
-- **Data audit:** `docs/DATA.md`
+- **Data audit & curation log:** `docs/DATA.md`
 - **Design & implementation decisions:** `docs/DECISIONS.md`
 
 ## Browser Support (Target)
 
-- Chrome / Edge desktop (latest; Chrome 148+ for optional built-in Prompt API over `http(s)://`)
+- Chrome / Edge / Dia desktop (latest; Chrome 148+ for optional built-in Prompt API over `http(s)://`)
 - Safari iOS, Chrome Android
 
-## Known Limits (M0)
+## Known Limits (Through M3)
 
-- M0 provides the folder skeleton, data audit documentation, a minimal boot check in `index.html`, the `tests/test.html` runner, and the `tests/ai-spike.html` CDN/Blob Worker cache spike. Application features will be built milestone by milestone per Appendix A.
+- Builtin vocabulary comes from `data/english-2000-data.js` (unmodified) with non-destructive OCR and translation curation in `data/card-fixes.js`.
+- Today's Review (M4), the three mini-games (M5–M10), in-browser AI tutoring (M6–M11), Dashboard timetable (M9), and offline Service Worker (M12) are staged stubs until their respective milestones.

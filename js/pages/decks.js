@@ -122,7 +122,8 @@
 
       decks.forEach((deck, index) => {
         const count = decksStore.getCardIds(deck.id).length;
-        const tooFew = count < 4;
+        const tooFew = !decksStore.canPlayFourOptionGame(deck.id);
+        const displayName = deck.builtin ? _t('decks.builtin_name') : deck.name;
 
         const row = el('li', {
           className: 'deck-row',
@@ -151,7 +152,7 @@
         }, [
           el('span', { className: 'deck-ring-dot deck-ring-dot--' + (deck.ringColor || 'vocab'), 'aria-hidden': 'true' }),
           el('div', { className: 'deck-info' }, [
-            el('div', { className: 'deck-name', text: deck.name }),
+            el('div', { className: 'deck-name', text: displayName }),
             el('div', { className: 'deck-sub' }, [
               el('span', { className: 'mono', text: _t('decks.card_count', { n: App.format ? App.format.int(count) : count }) }),
               deck.builtin ? el('span', { className: 'card-badge', text: _t('cards.source_builtin') }) : null,

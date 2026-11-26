@@ -1,6 +1,6 @@
 /**
- * Hash router with mount/unmount lifecycle.
- * Routes are registered as { path, page } where page has mount(root, params) and unmount().
+ * Hash router with mount/unmount lifecycle and query-string support.
+ * Routes match pathname before '?' and pass parsed query params on params.query.
  * Unknown routes -> dashboard + toast.
  * Browser Back or HUD exit during a game -> exit confirmation modal.
  * @namespace App.router
@@ -12,30 +12,18 @@
   /** @type {{ path: string, pattern: RegExp, keys: string[], page: Object }[]} */
   const _routes = [];
 
-  /** Currently mounted page module. */
   let _active = null;
-  /** Hash currently mounted. */
   let _activePath = '';
-  /** Route params for current page (used on i18n refresh). */
   let _lastParams = {};
-  /** Whether the current route is a game (navigation hidden). */
   let _inGame = false;
-  /** DOM root where pages mount. */
   let _root = null;
-  /** Prevent duplicate hashchange bindings. */
   let _initialized = false;
-  /** Guard flags for browser Back exit confirmation. */
   let _restoringHash = false;
   let _bypassExitGuard = false;
   let _skipNextHash = null;
 
   const GAME_PATHS = ['#/games/class13', '#/games/guess', '#/games/wall'];
 
-  /**
-   * Convert a route string like "#/cards/:id" to a regex and extract param names.
-   * @param {string} path
-   * @returns {{ pattern: RegExp, keys: string[] }}
-   */
   function _compile(path) {
     const keys = [];
     const src = path
@@ -49,41 +37,50 @@
   }
 
   /**
-   * Register a route (replaces existing registration for same path if any).
-   * @param {string} path   e.g. '#/cards/:id'
-   * @param {Object} page   Must expose mount(root, params) and unmount().
+   * Split "#/cards?deck=d-1" into { pathname: "#/cards", query: { deck: "d-1" } }.
+   * @param {string} hash
+   * @returns {{ pathname: string, query: Record<string, string> }}
    */
+  function _splitHash(hash) {
+    const raw = hash || '#/';
+    const qIdx = raw.indexOf('?');
+    if (qIdx < 0) return { pathname: raw, query: {} };
+    const pathname = raw.slice(0, qIdx) || '#/';
+    const query = {};
+    const search = raw.slice(qIdx + 1);
+    if (search) {
+      for (const pair of search.split('&')) {
+        if (!pair) continue;
+        const eq = pair.indexOf('=');
+        const k = decodeURIComponent(eq >= 0 ? pair.slice(0, eq) : pair);
+        const v = eq >= 0 ? decodeURIComponent(pair.slice(eq + 1)) : '';
+        if (k) query[k] = v;
+      }
+    }
+    return { pathname, query };
+  }
+
   function register(path, page) {
     const existing = _routes.findIndex(function (r) { return r.path === path; });
     const compiled = _compile(path);
     const entry = { path, pattern: compiled.pattern, keys: compiled.keys, page };
-    if (existing >= 0) {
-      _routes[existing] = entry;
-    } else {
-      _routes.push(entry);
-    }
+    if (existing >= 0) _routes[existing] = entry;
+    else _routes.push(entry);
   }
 
-  /**
-   * Match a hash string against registered routes.
-   * @param {string} hash   e.g. '#/cards/b-0001'
-   * @returns {{ page: Object, params: Object, path: string }|null}
-   */
   function _match(hash) {
+    const { pathname, query } = _splitHash(hash);
     for (const route of _routes) {
-      const m = hash.match(route.pattern);
+      const m = pathname.match(route.pattern);
       if (m) {
-        const params = {};
+        const params = { query };
         route.keys.forEach(function (k, i) { params[k] = decodeURIComponent(m[i + 1]); });
-        return { page: route.page, params, path: route.path };
+        return { page: route.page, params, path: route.path, pathname };
       }
     }
     return null;
   }
 
-  /**
-   * Unmount the currently active page safely.
-   */
   function _unmount() {
     if (_active && typeof _active.unmount === 'function') {
       try { _active.unmount(); } catch (e) { console.error('[router] unmount error:', e); }
@@ -95,10 +92,6 @@
     _updateNav(false);
   }
 
-  /**
-   * Toggle navigation vs. game HUD visibility.
-   * @param {boolean} inGame
-   */
   function _updateNav(inGame) {
     document.body.classList.toggle('is-in-game', inGame);
     const nav = document.getElementById('app-nav');
@@ -107,29 +100,18 @@
     if (hud) hud.setAttribute('aria-hidden', inGame ? 'false' : 'true');
   }
 
-  /**
-   * Update active nav link styling and aria-current.
-   * @param {string} hash
-   */
   function _updateNavActive(hash) {
+    const { pathname } = _splitHash(hash);
     const links = document.querySelectorAll('[data-nav-link]');
     links.forEach(function (link) {
       const href = link.getAttribute('href') || link.dataset.navLink;
-      const isMatch = href === hash || (href !== '#/' && hash.startsWith(href + '/'));
+      const isMatch = href === pathname || (href !== '#/' && pathname.startsWith(href + '/'));
       link.classList.toggle('is-active', isMatch);
-      if (isMatch) {
-        link.setAttribute('aria-current', 'page');
-      } else {
-        link.removeAttribute('aria-current');
-      }
+      if (isMatch) link.setAttribute('aria-current', 'page');
+      else link.removeAttribute('aria-current');
     });
   }
 
-  /**
-   * Show the exit-game confirmation modal.
-   * @param {Function} onConfirm
-   * @param {Function} [onCancel]
-   */
   function _showExitConfirm(onConfirm, onCancel) {
     const t = App.i18n ? App.i18n.t.bind(App.i18n) : function (k) { return k; };
     if (App.modal) {
@@ -140,16 +122,12 @@
           {
             label: t('app.exit_no'),
             variant: 'secondary',
-            onClick: function () {
-              if (onCancel) onCancel();
-            },
+            onClick: function () { if (onCancel) onCancel(); },
           },
           {
             label: t('app.exit_yes'),
             variant: 'danger',
-            onClick: function () {
-              if (onConfirm) onConfirm();
-            },
+            onClick: function () { if (onConfirm) onConfirm(); },
           },
         ],
         onClose: onCancel || null,
@@ -161,10 +139,6 @@
     }
   }
 
-  /**
-   * Navigate to a hash and mount the matching page.
-   * @param {string} [hash]  Defaults to window.location.hash.
-   */
   function navigate(hash) {
     if (!_root) return;
     if (_restoringHash) {
@@ -173,9 +147,9 @@
     }
 
     const h = hash || window.location.hash || '#/';
+    const { pathname } = _splitHash(h);
 
-    // Guard leaving an active game (e.g., via browser Back or external hash change)
-    if (_inGame && !_bypassExitGuard && h !== _activePath) {
+    if (_inGame && !_bypassExitGuard && pathname !== _splitHash(_activePath).pathname) {
       const gamePath = _activePath;
       _showExitConfirm(
         function () {
@@ -185,7 +159,12 @@
         function () {
           if (window.location.hash !== gamePath) {
             _restoringHash = true;
-            window.location.hash = gamePath;
+            try {
+              window.history.replaceState(null, '', gamePath);
+              _restoringHash = false;
+            } catch (_e) {
+              window.location.hash = gamePath;
+            }
           }
         }
       );
@@ -201,6 +180,7 @@
         App.toast.show(App.i18n ? App.i18n.t('error.unknown_route') : '找不到此頁面，已返回首頁。');
       }
       if (window.location.hash !== '#/') {
+        _skipNextHash = '#/';
         window.location.hash = '#/';
       }
       const dash = _match('#/');
@@ -219,11 +199,11 @@
     _active = match.page;
     _activePath = h;
     _lastParams = match.params;
-    _inGame = GAME_PATHS.some(function (gp) { return h === gp; });
+    _inGame = GAME_PATHS.some(function (gp) { return match.pathname === gp; });
     _updateNav(_inGame);
     _updateNavActive(h);
 
-    if (App.bus) App.bus.emit('route:changed', { hash: h, params: match.params });
+    if (App.bus) App.bus.emit('route:changed', { hash: h, pathname: match.pathname, params: match.params });
 
     try {
       _active.mount(_root, match.params);
@@ -235,9 +215,6 @@
     }
   }
 
-  /**
-   * Re-render the current page (called after language switch).
-   */
   function refresh() {
     if (!_active || !_root) return;
     const page = _active;
@@ -260,10 +237,6 @@
     }
   }
 
-  /**
-   * Initialise the router, binding hashchange once.
-   * @param {HTMLElement} root
-   */
   function init(root) {
     _root = root;
     if (!_initialized) {
@@ -280,10 +253,6 @@
     navigate(window.location.hash || '#/');
   }
 
-  /**
-   * Programmatic navigation (prompts before changing hash when in a game).
-   * @param {string} hash
-   */
   function go(hash) {
     function commit() {
       if (window.location.hash !== hash) {
@@ -293,7 +262,7 @@
       navigate(hash);
     }
 
-    if (_inGame && hash !== _activePath) {
+    if (_inGame && _splitHash(hash).pathname !== _splitHash(_activePath).pathname) {
       _showExitConfirm(function () {
         _bypassExitGuard = true;
         commit();
@@ -303,7 +272,6 @@
     commit();
   }
 
-  /** Return current router state (for diagnostics & tests). */
   function current() {
     return { path: _activePath, inGame: _inGame, params: _lastParams };
   }

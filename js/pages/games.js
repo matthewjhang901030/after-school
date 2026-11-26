@@ -25,14 +25,14 @@
         index: '猜',
         name: t('games.guess.name'),
         desc: t('games.guess.desc'),
-        skills: ['vocab', 'dialogue'],
+        skills: ['vocab', 'grammar', 'dialogue'],
       },
       {
         href: '#/games/wall',
         index: '牆',
         name: t('games.wall.name'),
         desc: t('games.wall.desc'),
-        skills: ['vocab', 'grammar'],
+        skills: ['vocab', 'grammar', 'dialogue'],
       },
     ];
   }

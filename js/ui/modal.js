@@ -52,10 +52,11 @@
     activeOnClose = typeof onClose === 'function' ? onClose : null;
 
     const { el } = App.dom;
+    const closeLabel = App.i18n ? App.i18n.t('modal.close') : '關閉視窗';
     const closeBtn = el('button', {
       type: 'button',
       className: 'btn btn-ghost btn-icon',
-      'aria-label': '關閉視窗',
+      'aria-label': closeLabel,
       onClick: () => close(false),
     }, [App.icons.svg('close')]);
 

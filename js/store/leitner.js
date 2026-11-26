@@ -200,7 +200,21 @@
     if (map[cardId]) {
       delete map[cardId];
       _save(map);
+      _emit(cardId, null);
     }
+  }
+
+  /**
+   * Restore a previously saved progress record (e.g. after undo delete).
+   * @param {string} cardId
+   * @param {Object} record
+   */
+  function restore(cardId, record) {
+    if (!cardId || !record) return;
+    const map = _load();
+    map[cardId] = Object.assign({}, record, { cardId });
+    _save(map);
+    _emit(cardId, Object.assign({}, map[cardId]));
   }
 
   /**
@@ -220,6 +234,7 @@
     recordGameResult,
     getBoxCounts,
     remove,
+    restore,
     invalidate,
   };
 })();

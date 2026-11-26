@@ -7,7 +7,7 @@
 
   const App = (window.App = window.App || {});
 
-  const SKILL_LABEL = {
+  const SKILL_FALLBACK = {
     vocab: '單字',
     grammar: '文法',
     dialogue: '對話',
@@ -49,7 +49,7 @@
     const tabsEl = el('div', { className: 'skill-tabs' },
       skills.map((s) => el('span', {
         className: `skill-tab skill-tab--${s}`,
-        text: SKILL_LABEL[s] || s,
+        text: _t('skill.' + s, SKILL_FALLBACK[s] || s),
       }))
     );
 
@@ -133,8 +133,10 @@
       ]),
       el('div', { className: 'flashcard-center' }, [
         el('div', { className: 'flashcard-zh', text: card.zh }),
-        card.example ? el('div', { className: 'flashcard-example', text: card.example }) : null,
-        card.exampleZh ? el('div', { className: 'flashcard-example-zh', text: card.exampleZh }) : null,
+        card.example
+          ? el('div', { className: 'flashcard-example', text: card.example })
+          : el('div', { className: 'text-small text-muted', text: _t('cards.no_example', '暫無例句') }),
+        card.example && card.exampleZh ? el('div', { className: 'flashcard-example-zh', text: card.exampleZh }) : null,
         card.aiTip ? el('div', { className: 'flashcard-tip', text: `${_t('cards.ai_tip', '記憶提示')}：${card.aiTip}` }) : null,
       ]),
       el('div', { className: 'flashcard-foot' }, [

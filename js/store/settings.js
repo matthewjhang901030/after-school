@@ -17,12 +17,14 @@
   const DEFAULTS = {
     language: 'zh-TW',                 // 'zh-TW' | 'en'
     theme: 'auto',                     // 'auto' | 'light' | 'dark'
-    dailyNewWords: 10,                  // number (1–50)
-    periodsPerDay: 3,                   // 2 | 3 | 4
-    autoPlayPronunciation: false,       // boolean
-    speechRate: 1.0,                    // number (0.5–2.0)
-    safeMode: false,                    // boolean — 安心模式 (reduces horror atmosphere)
-    aiEngine: 'auto',                   // 'auto' | 'nano' | 'qwen' | 'templates'
+    dailyNewWords: 10,                 // number (5–30)
+    periodsPerDay: 3,                  // 2 | 3 | 4
+    autoPlayPronunciation: false,      // boolean
+    speechRate: 1.0,                   // number (0.5–2.0)
+    safeMode: false,                   // boolean — 安心模式
+    aiEngine: 'auto',                  // 'auto' | 'nano' | 'qwen' | 'templates'
+    onboarded: false,                  // boolean — 3-step onboarding completed (M4)
+    class13WarningDismissed: false,    // boolean — Class 13 content warning (M10)
   };
 
   /** Cached copy to avoid unnecessary JSON round-trips on every read. */

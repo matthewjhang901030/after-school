@@ -1,9 +1,13 @@
 /**
- * English (en) UI strings — translation of zh-TW.js.
- * Exposed as window.AS_I18N_EN.
+ * English (en) UI strings — sentence case throughout, no exclamation marks.
+ * Loaded as a classic script; registered on window.App._i18n['en'].
  */
 (function () {
-  window.AS_I18N_EN = {
+  'use strict';
+  const App = (window.App = window.App || {});
+  App._i18n = App._i18n || {};
+
+  App._i18n['en'] = {
     // ── Navigation ──────────────────────────────────────────────────────────
     'nav.dashboard':   'Home',
     'nav.cards':       'Cards',
@@ -11,17 +15,26 @@
     'nav.decks':       'Decks',
     'nav.games':       'Games',
     'nav.stats':       'Stats',
-    'nav.stamps':      'Stamp Book',
+    'nav.stamps':      'Stamp book',
     'nav.settings':    'Settings',
 
     // ── App shell ───────────────────────────────────────────────────────────
     'app.name':           'After School',
     'app.tagline':        'Real English practice, after the bell.',
     'app.offline':        'Offline',
-    'app.exit_game':      'Exit Game',
+    'app.exit_game':      'Exit game',
     'app.exit_confirm':   'Exit the game? This session will not be saved.',
     'app.exit_yes':       'Exit',
-    'app.exit_no':        'Keep Playing',
+    'app.exit_no':        'Keep playing',
+    'app.skip_to_main':   'Skip to main content',
+    'app.nav_label':      'Main navigation',
+    'app.game_controls':  'Game controls',
+    'app.footer_note':    'After School · Browser-only English study environment',
+
+    // ── Modal & keyboard ────────────────────────────────────────────────────
+    'modal.close':        'Close dialog',
+    'kb.label':           'On-screen keyboard',
+    'kb.rotten':          '{key} is locked',
 
     // ── Buttons ─────────────────────────────────────────────────────────────
     'btn.start':          'Start',
@@ -42,36 +55,38 @@
     'btn.play':           'Play',
 
     // ── Error states ────────────────────────────────────────────────────────
-    'error.generic':      'Something went wrong. Please try again.',
-    'error.load':         'Failed to load.',
-    'error.save':         'Failed to save. Please try again.',
-    'error.quota':        'Storage full. Data is kept in memory and will be lost on refresh.',
-    'error.unknown_route':'Page not found. Returning to home.',
+    'error.generic':         'Something went wrong. Please try again.',
+    'error.load':            'Failed to load.',
+    'error.save':            'Failed to save. Please try again.',
+    'error.quota':           'Storage full. Data is kept in memory and will be lost on refresh.',
+    'error.storage_blocked': 'Local storage is unavailable. Data will only be kept for this session.',
+    'error.migration':       'Data upgrade failed. Your previous data has been kept.',
+    'error.unknown_route':   'Page not found. Returning to home.',
 
     // ── Empty states ────────────────────────────────────────────────────────
     'empty.cards':        'No cards yet. Add your first one.',
     'empty.decks':        'No decks yet. Create your first one.',
     'empty.attempts':     'Your progress will appear here after your first session.',
-    'empty.stamps':       'No stamps yet. Complete a session to earn your first!',
+    'empty.stamps':       'No stamps yet. Complete a session to earn your first.',
     'empty.stats':        'Start reviewing to see your statistics here.',
 
     // ── Dashboard ───────────────────────────────────────────────────────────
-    'dashboard.title':          "Today's Schedule",
+    'dashboard.title':          "Today's schedule",
     'dashboard.streak':         '{n}-day streak',
     'dashboard.streak_one':     '1-day streak',
-    'dashboard.hardest':        "This Week's Hard Words",
-    'dashboard.loop_step':      'Learning Loop',
-    'dashboard.ai_advice':      'AI Advice',
+    'dashboard.hardest':        "This week's hard words",
+    'dashboard.loop_step':      'Learning loop',
+    'dashboard.ai_advice':      'AI advice',
     'dashboard.demo_banner':    'Demo data is active',
     'dashboard.demo_clear':     'Clear demo data',
 
     // ── Today's timetable ───────────────────────────────────────────────────
     'timetable.period':         'Period {n}',
-    'timetable.card_review':    'Card Review',
+    'timetable.card_review':    'Card review',
     'timetable.class13':        'Class 13',
-    'timetable.wall':           "Today's Wall",
-    'timetable.guess':          'Describe & Guess',
-    'timetable.after_school':   'After School',
+    'timetable.wall':           "Today's wall",
+    'timetable.guess':          'Describe and guess',
+    'timetable.after_school':   'After school',
     'timetable.done':           'Done',
     'timetable.skip':           'Skip',
 
@@ -80,9 +95,10 @@
     'cards.search':             'Search words…',
     'cards.filter_all':         'All',
     'cards.filter_due':         'Due',
-    'cards.add':                'Add Card',
-    'cards.detail':             'Card Detail',
-    'cards.history':            'Learning History',
+    'cards.add':                'Add card',
+    'cards.edit':               'Edit card',
+    'cards.detail':             'Card detail',
+    'cards.history':            'Learning history',
     'cards.flip_hint':          'Tap to flip · Swipe to rate',
     'cards.know':               'Got it',
     'cards.unknown':            'Not yet',
@@ -93,28 +109,30 @@
     'cards.undo_delete':        'Deleted "{word}".',
 
     // ── Leitner / Review ────────────────────────────────────────────────────
-    'review.title':             "Today's Review",
+    'review.title':             "Today's review",
     'review.due':               '{n} cards due',
-    'review.done':              "Today's review complete!",
+    'review.done':              'All due cards reviewed for today.',
     'review.box':               'Box {n}',
     'review.promoted':          'Moved to box {n}',
     'review.demoted':           'Back to box 1',
 
     // ── Decks ───────────────────────────────────────────────────────────────
     'decks.title':              'Decks',
-    'decks.create':             'Create Deck',
+    'decks.builtin_name':       'Core 2000 words',
+    'decks.create':             'Create deck',
     'decks.name_placeholder':   'Deck name',
     'decks.card_count':         '{n} cards',
 
     // ── Games hub ───────────────────────────────────────────────────────────
     'games.title':              'Games',
-    'games.personal_best':      'Personal Best',
+    'games.personal_best':      'Personal best',
     'games.class13.name':       'Class 13',
-    'games.class13.desc':       'Typing survival: type the correct word before the monster reaches you.',
-    'games.guess.name':         'Describe & Guess',
-    'games.guess.desc':         'Describe a word in Chinese and let the AI guess it.',
-    'games.wall.name':          'Word Wall',
-    'games.wall.desc':          'Find four groups of four connected words.',
+    'games.class13.desc':       'Typing survival: type the correct English answer before the threat arrives.',
+    'games.guess.name':         'Describe and guess',
+    'games.guess.desc':         'Describe the target word in English without taboo words and let the AI guess it.',
+    'games.wall.name':          'Four-group wall',
+    'games.wall.desc':          'Sort 16 items into four connected groups covering vocabulary, grammar, and dialogue.',
+    'games.stub_notice':        'This game will be implemented in an upcoming milestone.',
 
     // ── Skill tabs ─────────────────────────────────────────────────────────
     'skill.vocab':              'Vocab',
@@ -125,7 +143,7 @@
     'ai.disclaimer':            'AI may make mistakes. Always check the card content.',
     'ai.source.nano':           'Gemini Nano',
     'ai.source.qwen':           'Qwen 2.5',
-    'ai.source.template':       'Offline Template',
+    'ai.source.template':       'Offline template',
     'ai.downloading':           'Downloading AI model ({mb} MB)…',
     'ai.download_done':         'AI model ready.',
     'ai.download_error':        'Model download interrupted. Using offline templates.',
@@ -156,6 +174,8 @@
     'settings.reset.keyword':   'delete',
     'settings.demo_load':       'Load demo data',
     'settings.ai_diag':         'AI diagnostics',
+    'settings.ai_diag_stub':    'The full AI diagnostics panel lands in M12. You can test the environment in the AI spike page.',
+    'settings.ai_spike_link':   'Open AI spike page',
 
     // ── Statistics ─────────────────────────────────────────────────────────
     'stats.title':              'Statistics',
@@ -172,7 +192,7 @@
     'stats.bests':              'Personal bests',
 
     // ── Stamps ─────────────────────────────────────────────────────────────
-    'stamps.title':             'Stamp Book',
+    'stamps.title':             'Stamp book',
     'stamps.locked_hint':       'Complete the condition to unlock.',
 
     // ── M3 Flashcards, Form & Decks ─────────────────────────────────────────
@@ -199,6 +219,7 @@
     'cards.speak_slow':         'Slow pronunciation',
     'cards.tap_flip':           'Tap or press Space to flip',
     'cards.flip_back':          'Tap again to flip back',
+    'cards.no_example':         'No example sentence yet',
     'cards.ai_tip':             'Memory tip',
     'cards.my_example':         'My sentence',
     'cards.not_found':          'Card not found. It may have been deleted.',

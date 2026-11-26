@@ -1,6 +1,8 @@
 /**
  * localStorage wrapper with schema versioning and migrations.
  * ALL localStorage access in the application must go through this module.
+ * Switches seamlessly to in-memory fallback on QuotaExceededError or SecurityError
+ * (private mode / blocked storage) with a user-visible banner (Section 3.8 & 7.3).
  * @namespace App.store.db
  */
 (function () {
@@ -8,44 +10,62 @@
   const App = (window.App = window.App || {});
   App.store = App.store || {};
 
-  // ─── Schema version ───────────────────────────────────────────────────────
   const CURRENT_VERSION = 1;
 
   /**
-   * Ordered migration array.  migrations[n] is called to upgrade from version
-   * n to version n+1.  Each function receives the full data snapshot
-   * { [key]: parsedValue } and must return the transformed snapshot.
+   * Ordered migration array. migrations[n] upgrades version n -> n+1.
    * @type {Array<(data: Object) => Object>}
    */
   const migrations = [
-    // 0 → 1: initial schema (nothing to transform, just stamp version)
     function v0_to_v1(data) {
       return data;
     },
   ];
 
-  // ─── In-memory fallback ──────────────────────────────────────────────────
-  let _fallback = null;   // null = use localStorage; Map = use in-memory
-  let _quotaBannerShown = false;
+  let _fallback = null;
+  let _bannerShown = false;
 
-  function _showQuotaBanner() {
-    if (_quotaBannerShown) return;
-    _quotaBannerShown = true;
-    if (App.toast) {
-      App.toast.show('儲存空間已滿，本次資料儲存在記憶體中（重新整理後將消失）。', { duration: 0 });
+  function _t(key, fallback) {
+    if (App.i18n) {
+      const val = App.i18n.t(key);
+      if (val !== key) return val;
     }
-    console.warn('[db] localStorage QuotaExceededError — switched to in-memory fallback');
+    return fallback;
   }
 
-  // ─── Raw read / write ─────────────────────────────────────────────────────
+  function _activateFallback(reasonKey, fallbackText) {
+    if (!_fallback) {
+      _fallback = new Map();
+      try {
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k.startsWith('as.')) {
+            _fallback.set(k, localStorage.getItem(k));
+          }
+        }
+      } catch (_e) { /* storage inaccessible (e.g. private mode) */ }
+    }
+    if (!_bannerShown) {
+      _bannerShown = true;
+      if (App.toast) {
+        App.toast.show(_t(reasonKey, fallbackText), { duration: 0 });
+      }
+      console.warn('[db] Switched to in-memory storage fallback:', reasonKey);
+    }
+  }
+
+  function _isQuotaError(err) {
+    return Boolean(err && (err.name === 'QuotaExceededError' || err.code === 22 || err.code === 1014));
+  }
 
   function _rawGet(key) {
     if (_fallback) return _fallback.get(key);
     try {
       const raw = localStorage.getItem(key);
       return raw === null ? undefined : raw;
-    } catch (_e) {
-      return undefined;
+    } catch (_err) {
+      _activateFallback('error.storage_blocked', '無法存取本機儲存空間，本次資料僅暫存於記憶體中。');
+      return _fallback.get(key);
     }
   }
 
@@ -57,34 +77,32 @@
     try {
       localStorage.setItem(key, raw);
     } catch (err) {
-      if (err && (err.name === 'QuotaExceededError' || err.code === 22)) {
-        _fallback = new Map();
-        // Seed the fallback with existing data so we don't lose everything
-        try {
-          for (let i = 0; i < localStorage.length; i++) {
-            const k = localStorage.key(i);
-            _fallback.set(k, localStorage.getItem(k));
-          }
-        } catch (_e) { /* best-effort */ }
-        _fallback.set(key, raw);
-        _showQuotaBanner();
+      if (_isQuotaError(err)) {
+        _activateFallback('error.quota', '儲存空間已滿，本次資料儲存在記憶體中（重新整理後將消失）。');
       } else {
-        console.error('[db] localStorage.setItem error:', err);
+        _activateFallback('error.storage_blocked', '無法存取本機儲存空間，本次資料僅暫存於記憶體中。');
       }
+      _fallback.set(key, raw);
     }
   }
 
   function _rawRemove(key) {
-    if (_fallback) { _fallback.delete(key); return; }
-    try { localStorage.removeItem(key); } catch (_e) { /* ignore */ }
+    if (_fallback) {
+      _fallback.delete(key);
+      return;
+    }
+    try {
+      localStorage.removeItem(key);
+    } catch (_err) {
+      _activateFallback('error.storage_blocked', '無法存取本機儲存空間，本次資料僅暫存於記憶體中。');
+      _fallback.delete(key);
+    }
   }
-
-  // ─── Public API ───────────────────────────────────────────────────────────
 
   /**
    * Read and parse a JSON value from storage.
-   * @param {string} key   Full storage key (e.g. "as.v1.settings")
-   * @param {*} [def=null]  Default value if key absent or parse error.
+   * @param {string} key
+   * @param {*} [def=null]
    * @returns {*}
    */
   function get(key, def) {
@@ -101,7 +119,7 @@
   /**
    * Stringify and store a value.
    * @param {string} key
-   * @param {*} value  Must be JSON-serialisable.
+   * @param {*} value
    */
   function set(key, value) {
     _rawSet(key, JSON.stringify(value));
@@ -124,18 +142,21 @@
     return _rawGet(key) !== undefined;
   }
 
-  // ─── Migrations ───────────────────────────────────────────────────────────
-
   /**
    * Run all pending migrations on startup.
-   * On migration error, keeps existing data and shows a toast.
+   * Keeps an in-memory backup; on failure restores old data and shows an error toast.
+   * @param {Array<(data: Object) => Object>} [customMigrations]  Optional override for tests.
+   * @param {number} [targetVersion]  Optional target version for tests.
+   * @returns {boolean} true if migrated cleanly or already current; false on error rollback
    */
-  function runMigrations() {
+  function runMigrations(customMigrations, targetVersion) {
+    const migs = Array.isArray(customMigrations) ? customMigrations : migrations;
+    const goal = typeof targetVersion === 'number' ? targetVersion : CURRENT_VERSION;
     const meta = get('as.meta', { schemaVersion: 0, createdAt: null, lastOpened: null });
     let version = meta.schemaVersion || 0;
+    let ok = true;
 
-    if (version < CURRENT_VERSION) {
-      // Snapshot all 'as.*' keys
+    if (version < goal) {
       let snapshot = {};
       const prefix = 'as.';
 
@@ -153,53 +174,53 @@
               try { snapshot[k] = JSON.parse(localStorage.getItem(k)); } catch (_e) { snapshot[k] = localStorage.getItem(k); }
             }
           }
-        } catch (_e) { /* ignore */ }
+        } catch (_e) {
+          _activateFallback('error.storage_blocked', '無法存取本機儲存空間，本次資料僅暫存於記憶體中。');
+        }
       }
 
-      let backup = JSON.parse(JSON.stringify(snapshot));  // deep clone
+      const backup = JSON.parse(JSON.stringify(snapshot));
 
       try {
-        while (version < CURRENT_VERSION) {
-          snapshot = migrations[version](snapshot);
+        while (version < goal) {
+          if (typeof migs[version] !== 'function') {
+            throw new Error('Missing migration step ' + version);
+          }
+          snapshot = migs[version](snapshot);
           version++;
         }
-        // Write migrated data back
         for (const [k, v] of Object.entries(snapshot)) {
           set(k, v);
         }
       } catch (err) {
+        ok = false;
         console.error('[db] Migration failed at version', version, err);
-        // Restore from backup
         for (const [k, v] of Object.entries(backup)) {
           set(k, v);
         }
-        if (App.toast) App.toast.show('資料結構升級失敗，已保留舊資料。請重新整理。', { duration: 0 });
+        if (App.toast) {
+          App.toast.show(_t('error.migration', '資料結構升級失敗，已保留舊資料。請重新整理。'), { duration: 0 });
+        }
+        return false;
       }
     }
 
-    // Update meta
     const now = new Date().toISOString();
     set('as.meta', {
-      schemaVersion: CURRENT_VERSION,
+      schemaVersion: goal,
       createdAt: meta.createdAt || now,
       lastOpened: now,
     });
+    return ok;
   }
 
-  /**
-   * Whether the store is using the in-memory fallback (quota exceeded).
-   * @returns {boolean}
-   */
   function isUsingFallback() {
     return _fallback !== null;
   }
 
-  /**
-   * Reset the in-memory fallback (for testing only).
-   */
   function _resetFallback() {
     _fallback = null;
-    _quotaBannerShown = false;
+    _bannerShown = false;
   }
 
   App.store.db = { get, set, remove, has, runMigrations, isUsingFallback, _resetFallback, CURRENT_VERSION };

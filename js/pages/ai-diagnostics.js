@@ -22,9 +22,9 @@
           ]),
           el('h1', { className: 'page-title', text: t('settings.ai_diag') }),
         ]),
-        el('p', { className: 'text-muted', text: 'AI 診斷工具將在 M12 實作。請先前往 tests/ai-spike.html 查看 AI 環境狀態。' }),
+        el('p', { className: 'text-muted', text: t('settings.ai_diag_stub') }),
         el('a', { className: 'btn btn-secondary', href: './tests/ai-spike.html' }, [
-          el('span', { className: 'btn-label', text: 'AI Spike 測試頁 →' }),
+          el('span', { className: 'btn-label', text: t('settings.ai_spike_link') + ' →' }),
         ]),
       ])
     );

@@ -126,17 +126,23 @@
       text: currentTheme === 'dark' ? '目前：深色 Night' : '目前：淺色 Afternoon',
     });
 
+    const themeIconWrap = el('span', { style: 'display:inline-flex;' }, [
+      App.icons.svg(currentTheme === 'dark' ? 'sun' : 'moon'),
+    ]);
+
     const themeBtn = el('button', {
       type: 'button',
       className: 'btn btn-secondary',
       onClick: () => {
         const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
         document.documentElement.dataset.theme = next;
+        if (App.store && App.store.settings) App.store.settings.update({ theme: next });
         themeLabel.textContent = next === 'dark' ? '目前：深色 Night' : '目前：淺色 Afternoon';
+        themeIconWrap.replaceChildren(App.icons.svg(next === 'dark' ? 'sun' : 'moon'));
         contrast.refresh();
       },
     }, [
-      App.icons.svg(currentTheme === 'dark' ? 'sun' : 'moon'),
+      themeIconWrap,
       el('span', { className: 'btn-label', text: '切換淺色 / 深色主題' }),
     ]);
 

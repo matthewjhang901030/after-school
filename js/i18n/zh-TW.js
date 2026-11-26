@@ -1,10 +1,13 @@
 /**
  * Traditional Chinese (zh-TW) UI strings.
- * Loaded as a classic script; exposed as window.AS_I18N_ZH_TW.
- * Keys use dot-notation namespaces.  Params use {placeholder} syntax.
+ * Loaded as a classic script; registered on window.App._i18n['zh-TW'].
  */
 (function () {
-  window.AS_I18N_ZH_TW = {
+  'use strict';
+  const App = (window.App = window.App || {});
+  App._i18n = App._i18n || {};
+
+  App._i18n['zh-TW'] = {
     // ── Navigation ──────────────────────────────────────────────────────────
     'nav.dashboard':   '首頁',
     'nav.cards':       '單字卡',
@@ -23,8 +26,17 @@
     'app.exit_confirm':   '確定要離開遊戲？本局紀錄不會儲存。',
     'app.exit_yes':       '離開',
     'app.exit_no':        '繼續',
+    'app.skip_to_main':   '跳至主內容',
+    'app.nav_label':      '主要導覽',
+    'app.game_controls':  '遊戲控制',
+    'app.footer_note':    '放學後 After School · 本機瀏覽器學習環境',
 
-    // ── Buttons (outcome-named) ─────────────────────────────────────────────
+    // ── Modal & keyboard ────────────────────────────────────────────────────
+    'modal.close':        '關閉視窗',
+    'kb.label':           '螢幕鍵盤',
+    'kb.rotten':          '{key} 已腐蝕鎖定',
+
+    // ── Buttons ─────────────────────────────────────────────────────────────
     'btn.start':          '開始',
     'btn.close':          '關閉',
     'btn.cancel':         '取消',
@@ -43,17 +55,19 @@
     'btn.play':           '播放',
 
     // ── Error states ────────────────────────────────────────────────────────
-    'error.generic':      '發生錯誤，請重試。',
-    'error.load':         '載入失敗。',
-    'error.save':         '儲存失敗，請重試。',
-    'error.quota':        '儲存空間已滿，本次資料儲存在記憶體中（重新整理後將消失）。',
-    'error.unknown_route':'找不到此頁面，已返回首頁。',
+    'error.generic':         '發生錯誤，請重試。',
+    'error.load':            '載入失敗。',
+    'error.save':            '儲存失敗，請重試。',
+    'error.quota':           '儲存空間已滿，本次資料儲存在記憶體中（重新整理後將消失）。',
+    'error.storage_blocked': '無法存取本機儲存空間，本次資料僅暫存於記憶體中。',
+    'error.migration':       '資料結構升級失敗，已保留舊資料。請重新整理。',
+    'error.unknown_route':   '找不到此頁面，已返回首頁。',
 
     // ── Empty states ────────────────────────────────────────────────────────
-    'empty.cards':        '還沒有單字卡，新增第一張吧。',
-    'empty.decks':        '還沒有卡組，建立第一個吧。',
+    'empty.cards':        '還沒有單字卡，新增第一張。',
+    'empty.decks':        '還沒有卡組，建立第一個。',
     'empty.attempts':     '完成第一節課後，這裡會出現你的進度。',
-    'empty.stamps':       '還沒有集章，完成一節課後會獲得第一枚！',
+    'empty.stamps':       '還沒有集章，完成一節課後會獲得第一枚。',
     'empty.stats':        '還沒有學習紀錄，開始複習後統計圖表會出現在這裡。',
 
     // ── Dashboard ───────────────────────────────────────────────────────────
@@ -66,7 +80,7 @@
     'dashboard.demo_banner':    '目前顯示示範資料',
     'dashboard.demo_clear':     '清除示範資料',
 
-    // ── Today's timetable (今日課表) ────────────────────────────────────────
+    // ── Today's timetable ───────────────────────────────────────────────────
     'timetable.period':         '第 {n} 節',
     'timetable.card_review':    '單字複習',
     'timetable.class13':        '第 13 節課',
@@ -82,6 +96,7 @@
     'cards.filter_all':         '全部',
     'cards.filter_due':         '待複習',
     'cards.add':                '新增單字卡',
+    'cards.edit':               '編輯單字卡',
     'cards.detail':             '卡片詳情',
     'cards.history':            '學習紀錄',
     'cards.flip_hint':          '點擊翻牌 · 左右滑動評分',
@@ -96,13 +111,14 @@
     // ── Leitner / Review ────────────────────────────────────────────────────
     'review.title':             '今日複習',
     'review.due':               '{n} 張待複習',
-    'review.done':              '今日複習完成！',
+    'review.done':              '今天的卡片都複習完了。',
     'review.box':               '第 {n} 盒',
     'review.promoted':          '升到第 {n} 盒',
     'review.demoted':           '回到第 1 盒',
 
     // ── Decks ───────────────────────────────────────────────────────────────
     'decks.title':              '卡組',
+    'decks.builtin_name':       '基礎 2000 字',
     'decks.create':             '建立卡組',
     'decks.name_placeholder':   '卡組名稱',
     'decks.card_count':         '{n} 張單字卡',
@@ -111,11 +127,12 @@
     'games.title':              '遊戲',
     'games.personal_best':      '個人最佳',
     'games.class13.name':       '第 13 節課',
-    'games.class13.desc':       '打字生存遊戲：在怪物到來前輸入正確單字。',
+    'games.class13.desc':       '打字生存遊戲：在怪物靠近前輸入正確的英文答案。',
     'games.guess.name':         '你說我猜',
-    'games.guess.desc':         '用中文描述，讓 AI 猜出你指的英文單字。',
+    'games.guess.desc':         '用英文描述目標單字（不能說禁忌詞），讓 AI 猜出答案。',
     'games.wall.name':          '四格分類牆',
-    'games.wall.desc':          '找出四組各有關聯的英文單字，一牆不留。',
+    'games.wall.desc':          '從 16 張紙條找出 4 組各有關聯的英文單字與規則。',
+    'games.stub_notice':        '此遊戲將在後續里程碑實作。',
 
     // ── Skill tabs ─────────────────────────────────────────────────────────
     'skill.vocab':              '單字',
@@ -157,6 +174,8 @@
     'settings.reset.keyword':   '刪除',
     'settings.demo_load':       '載入示範資料',
     'settings.ai_diag':         'AI 診斷',
+    'settings.ai_diag_stub':    'AI 診斷面板將在 M12 完成，目前可先開啟 AI Spike 測試頁檢查環境。',
+    'settings.ai_spike_link':   '開啟 AI Spike 測試頁',
 
     // ── Statistics ─────────────────────────────────────────────────────────
     'stats.title':              '統計',
@@ -200,6 +219,7 @@
     'cards.speak_slow':         '慢速發音',
     'cards.tap_flip':           '點擊或按空白鍵翻面',
     'cards.flip_back':          '再按一次翻回正面',
+    'cards.no_example':         '暫無例句',
     'cards.ai_tip':             '記憶提示',
     'cards.my_example':         '我的造句',
     'cards.not_found':          '找不到這張單字卡，可能已被刪除。',

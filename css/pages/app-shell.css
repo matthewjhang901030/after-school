@@ -400,3 +400,24 @@ body.is-in-game .app-content {
   color: var(--muted);
   flex-shrink: 0;
 }
+
+/* ── Semantic app footer (sibling landmark, hidden in games) ─ */
+.app-footer {
+  padding: var(--space-4) var(--space-4) calc(72px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: var(--text-small);
+  text-align: center;
+}
+
+@media (min-width: 1024px) {
+  .app-footer {
+    margin-left: 220px;
+    padding: var(--space-4) var(--space-8);
+    text-align: left;
+  }
+}
+
+body.is-in-game .app-footer {
+  display: none;
+}

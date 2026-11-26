@@ -21,7 +21,7 @@
           el('h1', { className: 'page-title', text: t('games.class13.name') }),
         ]),
         el('p', { className: 'text-muted', text: t('games.class13.desc') }),
-        el('p', { className: 'text-muted', text: '（M8 實作中）' }),
+        el('p', { className: 'text-muted', text: t('games.stub_notice') }),
       ])
     );
   }

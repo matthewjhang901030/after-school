@@ -20,7 +20,7 @@
           el('h1', { className: 'page-title', text: t('games.wall.name') }),
         ]),
         el('p', { className: 'text-muted', text: t('games.wall.desc') }),
-        el('p', { className: 'text-muted', text: '（M5 實作中）' }),
+        el('p', { className: 'text-muted', text: t('games.stub_notice') }),
       ])
     );
   }

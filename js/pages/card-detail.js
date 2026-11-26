@@ -18,6 +18,7 @@
 
   function mount(root, params) {
     _root = root;
+    _activeTab = 'info';
     const { el, clear } = App.dom;
     const cardsStore = App.store.cards;
     const decksStore = App.store.decks;
@@ -187,8 +188,11 @@
       if (App.audio && App.audio.tts) {
         App.audio.tts.ensureVoices().then((voice) => {
           if (!_root) return;
-          flashcard.setTtsDisabled(!voice);
-          if (voice && settingsStore && settingsStore.get('autoPlayPronunciation')) {
+          const st = App.audio.tts.status();
+          const voicesLoaded = typeof window.speechSynthesis !== 'undefined' && window.speechSynthesis.getVoices().length > 0;
+          const noVoice = !st.supported || (voicesLoaded && !voice);
+          flashcard.setTtsDisabled(noVoice);
+          if (!noVoice && settingsStore && settingsStore.get('autoPlayPronunciation')) {
             App.audio.tts.speak(card.word, { slow: false });
           }
         });

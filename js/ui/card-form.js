@@ -105,6 +105,7 @@
     const saveBtn = el('button', {
       type: 'submit',
       className: 'btn btn-primary',
+      disabled: !editing,
     }, [el('span', { className: 'btn-label', text: _t('btn.save') })]);
 
     function renderValidation() {

@@ -8,10 +8,7 @@
 
   /**
    * Normalise an answer string for comparison:
-   *   - trim leading/trailing whitespace
-   *   - collapse internal whitespace runs to a single space
-   *   - convert to lowercase
-   *   - replace curly/typographic quotes with straight ASCII equivalents
+   * trim, collapse spaces, lowercase, straight ASCII quotes.
    * @param {string} str
    * @returns {string}
    */
@@ -21,34 +18,33 @@
       .trim()
       .replace(/\s+/g, ' ')
       .toLowerCase()
-      .replace(/[\u2018\u2019\u02BC]/g, "'")   // curly single quotes / apostrophe
-      .replace(/[\u201C\u201D]/g, '"');          // curly double quotes
+      .replace(/[\u2018\u2019\u02BC]/g, "'")
+      .replace(/[\u201C\u201D]/g, '"');
   }
 
   /**
-   * Generate acceptable spelling variants for a word used in taboo checks.
-   * Returns an array that includes the word itself plus:
-   *   - +s  (simple plural / 3rd person)
-   *   - +ed  (simple past)
-   *   - +ing  (present participle, dropping trailing e when appropriate)
-   *   - +er  (comparative / agent noun)
-   *   - +est (superlative)
-   * @param {string} word  The base word (lowercase).
+   * Generate common English spelling variants for taboo checks (Section 4.4.2).
+   * Always includes regular forms (+s/+es, +ed, +ing, +er, +est) alongside
+   * true single-vowel CVC doubled forms so words like eat/read/clean/book
+   * always include eating/reading/cleaned/booked.
+   * @param {string} word
    * @returns {string[]}
    */
   function variants(word) {
-    if (!word) return [];
-    const w = word.toLowerCase();
+    if (!word || typeof word !== 'string') return [];
+    const w = word.trim().toLowerCase();
+    if (!w) return [];
     const result = new Set([w]);
 
-    // Helpers
     const endsWithE = w.endsWith('e') && w.length > 2;
     const endsWithConsonantY = /[^aeiou]y$/.test(w);
-    const endsWithDoubleableConsonant = /[aeiou][bcdfghjklmnpqrstvwxz]$/.test(w) && w.length > 2;
+    // True CVC (consonant + single vowel + single doubleable consonant, not w/x/y)
+    const isCvc = /(?:^|[^aeiou])[aeiou][bcdfghjklmnpqrstvz]$/.test(w) && w.length >= 3;
+    const last = w[w.length - 1];
 
-    // +s / +es
+    // +s / +es / +ies
     if (endsWithConsonantY) {
-      result.add(w.slice(0, -1) + 'ies');  // study → studies
+      result.add(w.slice(0, -1) + 'ies');
     } else if (/(?:s|sh|ch|x|z)$/.test(w)) {
       result.add(w + 'es');
     } else {
@@ -57,59 +53,58 @@
 
     // +ed
     if (endsWithE) {
-      result.add(w + 'd');                      // e.g. like → liked
+      result.add(w + 'd');
     } else if (endsWithConsonantY) {
-      result.add(w.slice(0, -1) + 'ied');       // study → studied
-    } else if (endsWithDoubleableConsonant) {
-      result.add(w + w[w.length - 1] + 'ed');   // stop → stopped
+      result.add(w.slice(0, -1) + 'ied');
     } else {
       result.add(w + 'ed');
+      if (isCvc) result.add(w + last + 'ed');
     }
 
     // +ing
-    if (endsWithE) {
-      result.add(w.slice(0, -1) + 'ing');       // like → liking
-    } else if (endsWithDoubleableConsonant) {
-      result.add(w + w[w.length - 1] + 'ing');  // stop → stopping
+    if (endsWithE && !w.endsWith('ee')) {
+      result.add(w.slice(0, -1) + 'ing');
     } else {
       result.add(w + 'ing');
+      if (isCvc) result.add(w + last + 'ing');
     }
 
     // +er
     if (endsWithE) {
-      result.add(w + 'r');                       // nice → nicer
-    } else if (endsWithDoubleableConsonant) {
-      result.add(w + w[w.length - 1] + 'er');   // big → bigger
+      result.add(w + 'r');
+    } else if (endsWithConsonantY) {
+      result.add(w.slice(0, -1) + 'ier');
     } else {
       result.add(w + 'er');
+      if (isCvc) result.add(w + last + 'er');
     }
 
     // +est
     if (endsWithE) {
       result.add(w + 'st');
-    } else if (endsWithDoubleableConsonant) {
-      result.add(w + w[w.length - 1] + 'est');
+    } else if (endsWithConsonantY) {
+      result.add(w.slice(0, -1) + 'iest');
     } else {
       result.add(w + 'est');
+      if (isCvc) result.add(w + last + 'est');
     }
 
     return Array.from(result);
   }
 
   /**
-   * Check whether any taboo word appears as a whole word in a description string.
-   * Used in 你說我猜 to prevent the describer from saying the target word or its variants.
-   *
-   * @param {string} desc     The player's description sentence(s).
-   * @param {string[]} taboos Array of words/variants to ban.
+   * Check whether any taboo word appears as a whole word in a description.
+   * @param {string} desc
+   * @param {string[]} taboos
    * @returns {{ found: boolean, matched: string[] }}
    */
   function tabooDetect(desc, taboos) {
     const norm = normalise(desc);
     const matched = [];
+    if (!norm || !Array.isArray(taboos)) return { found: false, matched };
     for (const taboo of taboos) {
       const t = normalise(taboo);
-      // whole-word check using word-boundary-like logic (handle non-ASCII gracefully)
+      if (!t) continue;
       const pattern = new RegExp('(?<![\\w\'])' + t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![\\w\'])', 'i');
       if (pattern.test(norm)) matched.push(taboo);
     }

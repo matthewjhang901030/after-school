@@ -95,6 +95,18 @@
       }
     }
 
+    const skipEl = document.getElementById('skip-link');
+    if (skipEl) skipEl.textContent = t('app.skip_to_main');
+
+    const navEl = document.getElementById('app-nav');
+    if (navEl) navEl.setAttribute('aria-label', t('app.nav_label'));
+
+    const hudEl = document.getElementById('game-hud');
+    if (hudEl) hudEl.setAttribute('aria-label', t('app.game_controls'));
+
+    const footerEl = document.getElementById('app-footer');
+    if (footerEl) footerEl.textContent = t('app.footer_note');
+
     const offlineEl = document.getElementById('offline-indicator');
     if (offlineEl) offlineEl.textContent = t('app.offline');
   }

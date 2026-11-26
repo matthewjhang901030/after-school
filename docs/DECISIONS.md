@@ -94,4 +94,18 @@ Every choice not fully specified by `docs/spec/part01.md`–`part11.md`, or reso
 
 18. **Shared Add/Edit card modal helper & TTS fallback**
     - Form rendering, validation, duplicate detection, and deck assignment live in `js/ui/card-form.js` so `#/cards` and `#/cards/:id` share one code path.
-    - `js/audio/tts.js` awaits `voiceschanged` with a `1500ms` timeout and never throws when `speechSynthesis` or an English voice is missing; speaker controls disable gracefully with tooltip `此裝置沒有英文語音`.
+    - `js/audio/tts.js` speaks synchronously inside click gestures when voices are loaded (preserving Chromium user activation), prefers `localService === true` English voices (e.g. `Microsoft Zira Desktop` on Windows 11) with automatic retry on OS default `lang = 'en-US'` if a remote voice fails (fixing silent Dia/`file://` playback), avoids the synchronous `cancel() → speak()` race, retains the active utterance reference against Chromium GC, and supports `pitch` + `onEnd` for M10.
+
+---
+
+## Pre-M4 Audit & Hardening Fixes
+
+19. **Non-destructive course data curation (`data/card-fixes.js`)**
+    - `data/english-2000-data.js` remains untouched; `data/card-fixes.js` registers `App.data.cardFixes` (`hideIds` + `rowFixes`) applied by raw row ID before case-insensitive deduplication in `js/store/cards.js`.
+    - 29 clear OCR-garbage and section-header rows are hidden and excluded from games (`hidden: true`, `excludeFromGames: true`); 38 obvious OCR headwords and 125 clearly context-wrong meanings are corrected and logged in `docs/DATA.md`.
+    - All `generated_example` meta-template sentences are suppressed (`example: null`, `hasRealExample: false`) so cards display a quiet empty state and M7 embeddings never ingest synthetic templates. Trailing Chinese study notes are stripped cleanly from the 57 mixed `source_771` examples.
+
+20. **Zero extra globals & router query parameters**
+    - i18n catalogues register on `window.App._i18n` instead of separate `window.AS_I18N_*` globals.
+    - `App.router` strips and parses hash query strings (`#/...?...`) into `params.query` so M4–M8 handoffs (`#/cards?deck=...`, `#/games/class13?words=...`) work without hitting unknown-route redirects.
+    - `App.store.db` switches to its in-memory fallback with banner on both `QuotaExceededError` and `SecurityError` (private mode / blocked storage).

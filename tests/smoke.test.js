@@ -146,7 +146,7 @@
       assert.equal(normalise('\u201Chello\u201D'), '"hello"');
     });
 
-    test('variants generates English inflections (+s/+ed/+ing/+er/+est)', () => {
+    test('variants generates English inflections (+s/+ed/+ing/+er/+est) without false doubling traps', () => {
       const study = variants('study');
       assert.ok(study.includes('studies'));
       assert.ok(study.includes('studied'));
@@ -159,14 +159,19 @@
       const stop = variants('stop');
       assert.ok(stop.includes('stopped'));
       assert.ok(stop.includes('stopping'));
+
+      assert.ok(variants('eat').includes('eating'));
+      assert.ok(variants('read').includes('reading'));
+      assert.ok(variants('clean').includes('cleaned'));
+      assert.ok(variants('book').includes('booked'));
     });
 
-    test('tabooDetect catches whole-word forms without partial-word false positives', () => {
+    test('tabooDetect catches whole-word forms and ignores empty taboo strings', () => {
       const hit = tabooDetect('I really love this word.', variants('love'));
       assert.equal(hit.found, true);
       assert.ok(hit.matched.includes('love'));
 
-      const miss = tabooDetect('I love lovely flowers.', ['loves']);
+      const miss = tabooDetect('I love lovely flowers.', ['loves', '', '   ']);
       assert.equal(miss.found, false);
     });
   });
@@ -200,18 +205,54 @@
       if (prevMeta) db.set('as.meta', prevMeta);
     });
 
-    test('QuotaExceededError switches to in-memory fallback', () => {
-      const original = localStorage.setItem.bind(localStorage);
+    test('QuotaExceededError and SecurityError switch to in-memory fallback', () => {
+      const originalSet = localStorage.setItem.bind(localStorage);
       localStorage.setItem = function () {
         throw new DOMException('QuotaExceededError', 'QuotaExceededError');
       };
       db._resetFallback();
       db.set('__test.quota', 'value');
-      localStorage.setItem = original;
+      localStorage.setItem = originalSet;
 
       assert.equal(db.isUsingFallback(), true);
       assert.equal(db.get('__test.quota'), 'value');
       db._resetFallback();
+
+      localStorage.setItem = function () {
+        throw new DOMException('Blocked in private mode', 'SecurityError');
+      };
+      db.set('__test.sec', 'mem');
+      localStorage.setItem = originalSet;
+
+      assert.equal(db.isUsingFallback(), true);
+      assert.equal(db.get('__test.sec'), 'mem');
+      db._resetFallback();
+    });
+
+    test('migration failure restores previous backup without wiping data', () => {
+      const prevMeta = db.get('as.meta');
+      db.set('as.meta', { schemaVersion: 0, createdAt: '2026-01-01T00:00:00.000Z', lastOpened: null });
+      db.set('as.__test_rollback', { intact: 123 });
+
+      const origErr = console.error;
+      console.error = function () {};
+      let ok = true;
+      try {
+        ok = db.runMigrations([
+          function broken() {
+            throw new Error('simulated migration crash');
+          },
+        ], 1);
+      } finally {
+        console.error = origErr;
+      }
+
+      assert.equal(ok, false);
+      assert.deepEqual(db.get('as.__test_rollback'), { intact: 123 });
+      assert.equal(db.get('as.meta').schemaVersion, 0);
+
+      db.remove('as.__test_rollback');
+      if (prevMeta) db.set('as.meta', prevMeta);
     });
   });
 
@@ -219,14 +260,17 @@
     const { t, lang, setLang, init } = window.App.i18n;
     const routerRoot = document.getElementById('test-router-root');
 
-    test('translates zh-TW, en, params, and English fallback cleanly', () => {
+    test('translates zh-TW, en, params, and English fallback without leaking window globals', () => {
+      assert.equal('AS_I18N_ZH_TW' in window, false);
+      assert.equal('AS_I18N_EN' in window, false);
       init('zh-TW');
       assert.equal(t('nav.dashboard'), '首頁');
+      assert.equal(t('cards.edit'), '編輯單字卡');
       assert.ok(t('timetable.period', { n: 3 }).includes('3'));
 
-      window.AS_I18N_EN['__test.only_en'] = 'Only EN';
+      window.App._i18n.en['__test.only_en'] = 'Only EN';
       assert.equal(t('__test.only_en'), 'Only EN');
-      delete window.AS_I18N_EN['__test.only_en'];
+      delete window.App._i18n.en['__test.only_en'];
 
       assert.equal(t('__test.missing_everywhere'), '__test.missing_everywhere');
     });
@@ -301,7 +345,10 @@
       assert.equal(document.body.classList.contains('is-in-game'), false);
     });
 
-    test('unknown route redirects to dashboard and shows toast', () => {
+    test('unknown route redirects to dashboard and shows toast; query params parse cleanly', () => {
+      navigate('#/cards?deck=d-builtin-2000');
+      assert.equal(current().params.query.deck, 'd-builtin-2000');
+
       navigate('#/nonexistent-route-xyz');
       assert.equal(window.location.hash, '#/');
       assert.equal(current().path, '#/');
@@ -309,10 +356,10 @@
   });
 
   // ═══════════════════════════════════════════════════════════════
-  // M3: Flashcards, Leitner, Decks, and TTS
+  // M3: Flashcards, Curation, Leitner, Decks, and TTS
   // ═══════════════════════════════════════════════════════════════
 
-  suite('M3: App.store.cards builtin import, POS & CRUD', ({ test, assert }) => {
+  suite('M3: App.store.cards builtin import, curation, POS & CRUD', ({ test, assert }) => {
     const cards = window.App.store.cards;
 
     test('normalisePos maps canonical tags, a. -> adj., and noisy OCR -> null', () => {
@@ -325,16 +372,40 @@
       assert.equal(cards.normalisePos('n.a.；0；Water freezes at zero degrees. 21 nineteen ('), null);
     });
 
-    test('merges 2029 rows into 1924 unique cards and hides suspect_ocr_word 0722', () => {
+    test('applies cardFixes curation: hides 29 garbage/header rows, fixes OCR words & context meanings', () => {
       const allWithHidden = cards.getAll({ includeHidden: true });
       const active = cards.getAll({ includeHidden: false });
-      assert.equal(allWithHidden.length, 1924);
-      assert.equal(active.length, 1923);
+      assert.equal(allWithHidden.length, 1928);
+      assert.equal(active.length, 1899);
 
       const b0722 = cards.getById('b-0722');
-      assert.ok(b0722);
-      assert.equal(b0722.hidden, true);
-      assert.equal(b0722.excludeFromGames, true);
+      assert.ok(b0722 && b0722.hidden === true && b0722.excludeFromGames === true);
+      assert.equal(cards.findByWord('OO'), null);
+      assert.equal(cards.findByWord('Cautbayoal'), null);
+
+      // Fixed OCR headwords
+      assert.equal(cards.getById('b-0612').word, 'lemon');
+      assert.equal(cards.getById('b-1216').word, 'biology');
+      assert.equal(cards.getById('b-0374').word, 'lucky');
+      assert.equal(cards.getById('b-0443').word, 'lovely');
+
+      // Duplicate merge joining distinct curated meanings with ；
+      const bat = cards.findByWord('bat');
+      assert.ok(bat && bat.sourceIds.includes('0832') && bat.sourceIds.includes('1707'));
+      assert.equal(bat.zh, '球棒；蝙蝠');
+
+      const may = cards.findByWord('may');
+      assert.ok(may && may.zh.includes('五月') && may.zh.includes('可能'));
+
+      // Meta-template examples suppressed; mixed Chinese notes stripped from source_771
+      const lib = cards.findByWord('library');
+      assert.equal(lib.example, null);
+      assert.equal(lib.hasRealExample, false);
+
+      const sick = cards.findByWord('sick');
+      assert.equal(sick.example, 'Phil is sick.');
+      assert.equal(sick.exampleZh, '菲爾病了。');
+      assert.equal(sick.hasRealExample, true);
 
       const baby = cards.getById('b-0001');
       assert.equal(baby.word, 'baby');
@@ -342,7 +413,7 @@
       assert.equal(baby.pos, 'n.');
     });
 
-    test('validates card inputs and detects case-insensitive duplicates', () => {
+    test('validates card inputs, detects duplicates, and allows editing punctuated builtin cards', () => {
       const emptyCheck = cards.validate({ word: '', zh: '' });
       assert.equal(emptyCheck.valid, false);
       assert.equal(emptyCheck.errors.word, 'required');
@@ -355,6 +426,27 @@
       const dup = cards.validate({ word: '  BABY ', zh: '寶寶' });
       assert.equal(dup.valid, false);
       assert.ok(dup.duplicate && dup.duplicate.id === 'b-0001');
+
+      // Punctuated builtin cards ("Mr.", "goodbye / bye") can be edited without blocking Save
+      const mrEdit = cards.validate({ word: 'Mr.', zh: '先生' }, 'b-0034');
+      assert.equal(mrEdit.valid, true);
+      const byeEdit = cards.validate({ word: 'goodbye / bye', zh: '再見' }, 'b-1888');
+      assert.equal(byeEdit.valid, true);
+    });
+
+    test('builtin card overrides persist across invalidate and builtin cards cannot be deleted', () => {
+      const prev = cards.getById('b-0001');
+      cards.update('b-0001', { aiTip: 'test memory tip' });
+      cards.invalidate();
+      assert.equal(cards.getById('b-0001').aiTip, 'test memory tip');
+      assert.equal(cards.removeUserCard('b-0001'), null);
+
+      // Restore clean state
+      const ov = window.App.store.db.get('as.v1.cards.overrides', {});
+      delete ov['b-0001'];
+      window.App.store.db.set('as.v1.cards.overrides', ov);
+      cards.invalidate();
+      assert.equal(cards.getById('b-0001').aiTip, prev.aiTip);
     });
 
     test('adds, updates, deletes and restores user card cleanly', () => {
@@ -373,15 +465,21 @@
       cards.removeUserCard(created.id);
     });
 
-    test('getDistractors excludes target, duplicates, and suspect_ocr_word', () => {
+    test('getDistractors uses same POS and falls back cleanly when pos is null', () => {
       const target = cards.getById('b-0001');
       const dist = cards.getDistractors(target, 3);
       assert.equal(dist.length, 3);
       dist.forEach((d) => {
         assert.ok(d.id !== target.id);
-        assert.ok(d.id !== 'b-0722');
-        assert.ok(d.pos === 'n.');
+        assert.ok(!d.excludeFromGames);
+        assert.equal(d.pos, 'n.');
       });
+
+      const nullPosCard = cards.findByWord('library');
+      assert.equal(nullPosCard.pos, null);
+      const fallbackDist = cards.getDistractors(nullPosCard, 3);
+      assert.equal(fallbackDist.length, 3);
+      assert.equal(new Set(fallbackDist.map((d) => d.word.toLowerCase())).size, 3);
     });
   });
 
@@ -450,39 +548,51 @@
     const decks = window.App.store.decks;
     const cards = window.App.store.cards;
 
-    test('default deck resolves 1923 active builtin cards and cannot be deleted', () => {
+    test('default deck resolves 1899 active builtin cards and cannot be deleted', () => {
       const def = decks.getById(decks.DEFAULT_DECK_ID);
       assert.ok(def);
-      assert.equal(decks.getCardIds(def.id).length, 1923);
+      assert.equal(decks.getCardIds(def.id).length, 1899);
       assert.equal(decks.remove(def.id), null);
     });
 
-    test('custom deck CRUD, 4-card game threshold, and restore undo', () => {
-      const d = decks.create({ name: 'Exam Prep', ringColor: 'grammar', cardIds: ['b-0001', 'b-0002'] });
-      assert.equal(decks.canPlayFourOptionGame(d.id), false);
+    test('custom deck CRUD, reorder persistence, 4-card threshold, and restore undo', () => {
+      const d1 = decks.create({ name: 'Exam Prep', ringColor: 'grammar', cardIds: ['b-0001', 'b-0002'] });
+      const d2 = decks.create({ name: 'Midterm', ringColor: 'dialogue', cardIds: ['b-0001'] });
+      assert.equal(decks.canPlayFourOptionGame(d1.id), false);
 
-      decks.setCardDecks('b-0003', [d.id]);
-      decks.setCardDecks('b-0004', [d.id]);
-      assert.equal(decks.canPlayFourOptionGame(d.id), true);
+      decks.reorder([d2.id, decks.DEFAULT_DECK_ID, d1.id]);
+      decks.invalidate();
+      assert.equal(decks.getAll()[0].id, d2.id);
+      decks.reorder([decks.DEFAULT_DECK_ID, d1.id, d2.id]);
 
-      const snap = decks.remove(d.id);
-      assert.equal(decks.getById(d.id), null);
-      // Cards remain intact after deck delete
+      decks.setCardDecks('b-0003', [d1.id]);
+      decks.setCardDecks('b-0004', [d1.id]);
+      assert.equal(decks.canPlayFourOptionGame(d1.id), true);
+
+      const snap = decks.remove(d1.id);
+      assert.equal(decks.getById(d1.id), null);
       assert.ok(cards.getById('b-0001'));
 
       decks.restore(snap);
-      assert.ok(decks.getById(d.id));
-      decks.remove(d.id);
+      assert.ok(decks.getById(d1.id));
+      decks.remove(d1.id);
+      decks.remove(d2.id);
     });
 
-    test('rapid flip clicks during 400ms lock are ignored and TTS stops safely', () => {
+    test('rapid flip clicks ignored and TTS prefers local English voices over remote', () => {
       const fc = window.App.flashcard.create({ word: 'electroencephalography', ipa: null, zh: '腦電圖' });
       const fontSize = parseInt(fc.root.querySelector('.flashcard-word').style.fontSize, 10);
       assert.ok(fontSize >= 28);
       fc.flip();
       assert.equal(fc.isFlipped(), true);
-      fc.flip(); // rapid click within 400ms must be ignored
+      fc.flip();
       assert.equal(fc.isFlipped(), true);
+
+      const picked = window.App.audio.tts._pickEnglishVoice([
+        { name: 'Google US English', lang: 'en-US', localService: false },
+        { name: 'Microsoft Zira Desktop', lang: 'en-US', localService: true },
+      ]);
+      assert.equal(picked.name, 'Microsoft Zira Desktop');
 
       const ttsStatus = window.App.audio.tts.status();
       assert.equal(typeof ttsStatus.supported, 'boolean');

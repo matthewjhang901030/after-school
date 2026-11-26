@@ -12,6 +12,9 @@
   ];
 
   function shuffleWithSeed(list, seed) {
+    if (App.random && typeof App.random.create === 'function') {
+      return App.random.shuffle(list.slice(), App.random.create(seed));
+    }
     const arr = list.slice();
     let s = seed >>> 0;
     for (let i = arr.length - 1; i > 0; i--) {
@@ -20,6 +23,14 @@
       [arr[i], arr[j]] = [arr[j], arr[i]];
     }
     return arr;
+  }
+
+  function _t(key, params, fallback) {
+    if (App.i18n) {
+      const val = App.i18n.t(key, params);
+      if (val !== key) return val;
+    }
+    return fallback;
   }
 
   /**
@@ -43,7 +54,7 @@
           type: 'button',
           className: `kb-key${isRotten ? ' is-rotten' : ''}`,
           disabled: isRotten,
-          'aria-label': isRotten ? `${ch} 已腐蝕鎖定` : ch,
+          'aria-label': isRotten ? _t('kb.rotten', { key: ch }, `${ch} 已腐蝕鎖定`) : ch,
           text: ch,
           onClick: () => {
             if (!isRotten && opts.onKey) opts.onKey(ch);
@@ -75,7 +86,11 @@
       ])
     );
 
-    return el('div', { className: 'game-keyboard', role: 'group', 'aria-label': '螢幕鍵盤' }, rowEls);
+    return el('div', {
+      className: 'game-keyboard',
+      role: 'group',
+      'aria-label': _t('kb.label', null, '螢幕鍵盤'),
+    }, rowEls);
   }
 
   App.keyboard = { create };

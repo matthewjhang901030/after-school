@@ -7,7 +7,8 @@
   <meta name="description" content="放學後，才是真正的英文課。瀏覽器端英語學習網站。">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,700&family=JetBrains+Mono:wght@400;700&family=LXGW+WenKai+TC:wght@400;700&family=Manrope:wght@400;700&family=Noto+Sans+TC:wght@400;700&family=Noto+Sans:wght@400;700&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,700&family=JetBrains+Mono:wght@400;700&family=LXGW+WenKai+TC:wght@400;700&family=Manrope:wght@400;700&family=Noto+Sans+TC:wght@400;700&family=Noto+Sans:wght@400;700&display=swap" media="print" onload="this.media='all'">
+  <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,700&family=JetBrains+Mono:wght@400;700&family=LXGW+WenKai+TC:wght@400;700&family=Manrope:wght@400;700&family=Noto+Sans+TC:wght@400;700&family=Noto+Sans:wght@400;700&display=swap"></noscript>
   <link rel="stylesheet" href="./css/tokens.css">
   <link rel="stylesheet" href="./css/base.css">
   <link rel="stylesheet" href="./css/components.css">
@@ -16,7 +17,9 @@
   <link rel="stylesheet" href="./css/pages/styleguide.css">
 </head>
 <body>
-  <a class="sr-only skip-link" href="#main-content" id="skip-link">跳至主內容</a>
+  <header class="sr-only" id="app-header">
+    <a class="skip-link" href="#main-content" id="skip-link">跳至主內容</a>
+  </header>
 
   <!-- Offline indicator -->
   <div class="offline-indicator" role="status" aria-live="polite" id="offline-indicator"></div>
@@ -46,8 +49,11 @@
 
   </div>
 
-  <!-- Scripts — load order: data → utils → store → i18n → bus → ui → router → pages → games → main -->
+  <footer class="app-footer" id="app-footer"></footer>
+
+  <!-- Scripts — load order: data → utils → store → audio → i18n → bus → ui → router → pages → games → main -->
   <script src="./data/english-2000-data.js"></script>
+  <script src="./data/card-fixes.js"></script>
 
   <script src="./js/util/dom.js"></script>
   <script src="./js/util/date.js"></script>

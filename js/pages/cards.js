@@ -50,9 +50,13 @@
     if (App.audio && App.audio.tts) App.audio.tts.stop();
   }
 
-  function mount(root) {
+  function mount(root, params) {
     _cleanup();
     _root = root;
+    if (params && params.query && typeof params.query.deck === 'string') {
+      _state.deckId = params.query.deck;
+      _state.page = 1;
+    }
     const { el, clear } = App.dom;
     const cardsStore = App.store.cards;
     const decksStore = App.store.decks;
@@ -86,7 +90,7 @@
       el('option', { value: '', text: _t('cards.all_decks') }),
       ...decksStore.getAll().map((d) => el('option', {
         value: d.id,
-        text: d.name,
+        text: d.builtin ? _t('decks.builtin_name') : d.name,
         selected: _state.deckId === d.id ? 'selected' : null,
       })),
     ]);
@@ -333,7 +337,9 @@
     if (App.audio && App.audio.tts) {
       App.audio.tts.ensureVoices().then((voice) => {
         if (!_root) return;
-        const noVoice = !voice;
+        const st = App.audio.tts.status();
+        const voicesLoaded = typeof window.speechSynthesis !== 'undefined' && window.speechSynthesis.getVoices().length > 0;
+        const noVoice = !st.supported || (voicesLoaded && !voice);
         if (noVoice !== _ttsUnavailable) {
           _ttsUnavailable = noVoice;
           renderList();
