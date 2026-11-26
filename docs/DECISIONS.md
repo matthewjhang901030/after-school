@@ -9,7 +9,7 @@ Every choice not fully specified by `docs/spec/part01.md`–`part11.md`, or reso
 1. **Supporting direct double-click (`file://`) alongside HTTP (`http(s)://`)**
    - The teacher's evaluation flow is downloading the repo ZIP, unzipping, and double-clicking `index.html` (`file://`), while GitHub Pages and VS Code Live Server serve over `http(s)://`.
    - Under `file://`, `<script type="module" src="./...">` and `fetch('./data/...')` are blocked by browser CORS policy. Therefore, application scripts load as **classic `<script src="./...">` files** wrapped in IIFEs registering onto `window.App` (relative paths only, zero build step).
-   - Future JSON content banks (`walls.json`, `tense.json`, `broadcast.json`, `class-rules.json`, `demo-seed.json`) will likewise load via classic `.js` wrappers (or inline data scripts) so they work identically under `file://` and `http(s)://`.
+   - Future content banks (named `walls.json`, `tense.json`, `broadcast.json`, `class-rules.json`, `demo-seed.json`, and `tests/guess-eval.json` in the spec) are implemented as classic `.js` files (`data/walls.js`, `data/tense.js`, `data/broadcast.js`, `data/class-rules.js`, `data/demo-seed.js`, `tests/guess-eval.js`) assigning onto `window.App.data.*` so they work identically under `file://` and `http(s)://` with zero local `fetch()`.
    - Service worker (`sw.js`) and Chrome built-in `LanguageModel` remain progressive enhancements when running over `http(s)://`.
 
 2. **AI model hosting and Blob URL Web Worker under `file://`**
@@ -52,7 +52,7 @@ Every choice not fully specified by `docs/spec/part01.md`–`part11.md`, or reso
     - The ~300KB JavaScript budget applies to our application modules under `js/` (excluding `data/english-2000-data.js` and external CDN AI models).
 
 11. **Folder structure adjustments (Section 7.2)**
-    - Test files are placed flat at `tests/*.test.js` alongside `tests/test.html` and `tests/guess-eval.json` (no nested `tests/tests/` folder).
+    - Test files are placed flat at `tests/*.test.js` alongside `tests/test.html` and `tests/guess-eval.js` (no nested `tests/tests/` folder).
     - `README.md` sits at the repository root (matching Appendix B and standard GitHub Pages repos) rather than inside `docs/`.
     - Empty directories from Section 7.2 contain `.gitkeep` placeholders during M0 so Git tracks the full structure; each `.gitkeep` will be removed when its directory receives real source files.
 
@@ -94,7 +94,7 @@ Every choice not fully specified by `docs/spec/part01.md`–`part11.md`, or reso
 
 18. **Shared Add/Edit card modal helper & TTS fallback**
     - Form rendering, validation, duplicate detection, and deck assignment live in `js/ui/card-form.js` so `#/cards` and `#/cards/:id` share one code path.
-    - `js/audio/tts.js` speaks synchronously inside click gestures when voices are loaded (preserving Chromium user activation), prefers `localService === true` English voices (e.g. `Microsoft Zira Desktop` on Windows 11) with automatic retry on OS default `lang = 'en-US'` if a remote voice fails (fixing silent Dia/`file://` playback), avoids the synchronous `cancel() → speak()` race, retains the active utterance reference against Chromium GC, and supports `pitch` + `onEnd` for M10.
+    - `js/audio/tts.js` never disables speaker buttons based on `getVoices()` at initial render (buttons stay enabled whenever `window.speechSynthesis` exists). On click, if voices are already loaded it speaks synchronously (preserving Chromium user activation); if `getVoices()` is still empty (as in Dia under `file://`), it waits for `voiceschanged` up to `1.5s`, then speaks — showing a toast only if still unavailable. Prefers `localService === true` English voices with remote-failure fallback, avoids the Windows SAPI `cancel() → speak()` race, retains `_activeUtter` against GC, and supports `pitch` + `onEnd` for M10.
 
 ---
 
@@ -102,7 +102,7 @@ Every choice not fully specified by `docs/spec/part01.md`–`part11.md`, or reso
 
 19. **Non-destructive course data curation (`data/card-fixes.js`)**
     - `data/english-2000-data.js` remains untouched; `data/card-fixes.js` registers `App.data.cardFixes` (`hideIds` + `rowFixes`) applied by raw row ID before case-insensitive deduplication in `js/store/cards.js`.
-    - 29 clear OCR-garbage and section-header rows are hidden and excluded from games (`hidden: true`, `excludeFromGames: true`); 38 obvious OCR headwords and 125 clearly context-wrong meanings are corrected and logged in `docs/DATA.md`.
+    - 29 clear OCR-garbage and section-header rows are hidden and excluded from games (`hidden: true`, `excludeFromGames: true`); 130 `rowFixes` rows are corrected (38 OCR headword fixes — 33 of which also fixed meaning — plus 92 pure context-meaning fixes = 125 meaning updates total) and logged in `docs/DATA.md`.
     - All `generated_example` meta-template sentences are suppressed (`example: null`, `hasRealExample: false`) so cards display a quiet empty state and M7 embeddings never ingest synthetic templates. Trailing Chinese study notes are stripped cleanly from the 57 mixed `source_771` examples.
 
 20. **Zero extra globals & router query parameters**

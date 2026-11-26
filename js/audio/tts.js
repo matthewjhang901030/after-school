@@ -1,12 +1,13 @@
 /**
  * Text-to-Speech (TTS) wrapper using window.speechSynthesis.
- * - Preserves Chromium user-gesture activation by speaking synchronously when
- *   voices are ready (no unnecessary await before speechSynthesis.speak).
- * - Prefers localService === true English voices (e.g. Microsoft Zira Desktop
- *   on Windows 11) so Dia, offline mode, and file:// work reliably; retries
- *   with OS default voice (voice = null, lang = 'en-US') if a remote voice fails.
- * - Avoids Chromium Windows SAPI cancel()+speak() race and GC mid-utterance bug.
- * - Supports slow (0.6x), custom rate, pitch (for Class 13 loudspeaker), and onEnd.
+ * - Buttons stay enabled whenever window.speechSynthesis exists (never disabled
+ *   by an empty getVoices() at initial render).
+ * - On click: if voices are already loaded, speaks synchronously inside the user
+ *   gesture; if getVoices() is still empty (common in Dia/Chromium under file://),
+ *   waits for voiceschanged (max 1.5s) then speaks, or shows a toast if still none.
+ * - Prefers localService === true English voices (e.g. Microsoft Zira Desktop),
+ *   retries with OS default (voice = null, lang = 'en-US') if a remote voice fails,
+ *   avoids the Windows SAPI cancel()+speak() race, and retains the active utterance.
  * @namespace App.audio.tts
  */
 (function () {
@@ -14,12 +15,20 @@
   const App = (window.App = window.App || {});
   App.audio = App.audio || {};
 
-  const VOICE_TIMEOUT_MS = 1500;
+  const DEFAULT_VOICE_TIMEOUT_MS = 1500;
   let _voicesReadyPromise = null;
   let _checked = false;
   let _englishVoice = null;
   let _activeUtter = null;
   let _cancelTimer = null;
+
+  function _t(key, fallback) {
+    if (App.i18n) {
+      const val = App.i18n.t(key);
+      if (val !== key) return val;
+    }
+    return fallback;
+  }
 
   /**
    * Pick best English voice: local en-US -> local en* -> remote en-US -> remote en*.
@@ -40,19 +49,25 @@
     );
   }
 
-  function _supported() {
+  /**
+   * Whether the browser exposes the Web Speech synthesis API.
+   * @returns {boolean}
+   */
+  function isSupported() {
     return typeof window !== 'undefined'
-      && 'speechSynthesis' in window
+      && Boolean(window.speechSynthesis)
       && typeof SpeechSynthesisUtterance !== 'undefined';
   }
 
   /**
-   * Resolve voices once speechSynthesis loads them (with 1.5s fallback timeout).
-   * Does not permanently cache an empty result after timeout so later clicks recover.
+   * Resolve voices once speechSynthesis populates them (with timeout).
+   * Ignores empty intermediate voiceschanged events; never caches a timed-out null.
+   * @param {number} [timeoutMs=1500]
    * @returns {Promise<SpeechSynthesisVoice|null>}
    */
-  function ensureVoices() {
-    if (!_supported()) {
+  function ensureVoices(timeoutMs) {
+    const limit = typeof timeoutMs === 'number' ? timeoutMs : DEFAULT_VOICE_TIMEOUT_MS;
+    if (!isSupported()) {
       _checked = true;
       _englishVoice = null;
       return Promise.resolve(null);
@@ -69,30 +84,41 @@
 
     _voicesReadyPromise = new Promise(function (resolve) {
       let settled = false;
+      const synth = window.speechSynthesis;
+
       function finish(timedOut) {
         if (settled) return;
         settled = true;
+        clearTimeout(timer);
+        if (typeof synth.removeEventListener === 'function') {
+          synth.removeEventListener('voiceschanged', onVoices);
+        }
         _checked = true;
-        const list = window.speechSynthesis.getVoices();
+        const list = synth.getVoices();
         _englishVoice = _pickEnglishVoice(list);
-        if (timedOut && !_englishVoice) {
-          _voicesReadyPromise = null;
+        _voicesReadyPromise = null;
+        if (!timedOut && (!_englishVoice && (!list || list.length === 0))) {
+          resolve(null);
+          return;
         }
         resolve(_englishVoice);
       }
 
-      const timer = setTimeout(() => finish(true), VOICE_TIMEOUT_MS);
-      if (typeof window.speechSynthesis.addEventListener === 'function') {
-        window.speechSynthesis.addEventListener('voiceschanged', function onVoices() {
-          window.speechSynthesis.removeEventListener('voiceschanged', onVoices);
-          clearTimeout(timer);
-          finish(false);
-        });
+      function onVoices() {
+        const list = synth.getVoices();
+        if (list && list.length > 0) finish(false);
+      }
+
+      const timer = setTimeout(() => finish(true), limit);
+      if (typeof synth.addEventListener === 'function') {
+        synth.addEventListener('voiceschanged', onVoices);
       } else {
-        window.speechSynthesis.onvoiceschanged = function () {
-          window.speechSynthesis.onvoiceschanged = null;
-          clearTimeout(timer);
-          finish(false);
+        synth.onvoiceschanged = function () {
+          const list = synth.getVoices();
+          if (list && list.length > 0) {
+            synth.onvoiceschanged = null;
+            finish(false);
+          }
         };
       }
     });
@@ -101,11 +127,11 @@
   }
 
   /**
-   * Synchronously inspect current TTS availability status.
+   * Synchronously inspect current TTS status.
    * @returns {{ supported: boolean, checked: boolean, hasEnglishVoice: boolean }}
    */
   function status() {
-    if (!_supported()) {
+    if (!isSupported()) {
       return { supported: false, checked: true, hasEnglishVoice: false };
     }
     const list = window.speechSynthesis.getVoices();
@@ -120,11 +146,18 @@
     };
   }
 
+  function _notifyNoVoice(opts) {
+    if (opts && opts.silent) return;
+    if (App.toast) {
+      App.toast.show(_t('cards.no_english_voice', '此裝置沒有英文語音'));
+    }
+  }
+
   /**
-   * Queue an utterance synchronously inside the current user gesture.
+   * Queue an utterance on window.speechSynthesis.
    * @param {string} clean
    * @param {SpeechSynthesisVoice|null} voice
-   * @param {{ slow?: boolean, rate?: number, pitch?: number, onEnd?: () => void, onError?: (err: string) => void }} opts
+   * @param {Object} opts
    * @param {boolean} allowFallback
    */
   function _enqueue(clean, voice, opts, allowFallback) {
@@ -164,7 +197,6 @@
       if (_activeUtter === utter) _activeUtter = null;
       if (code === 'canceled' || code === 'interrupted') return;
 
-      // Remote voice failed (common in Dia / offline / file://): retry once with OS default voice
       if (allowFallback && voice && !voice.localService) {
         _enqueue(clean, null, opts, false);
         return;
@@ -181,7 +213,6 @@
       synth.speak(utter);
     };
 
-    // Avoid Chromium Windows SAPI cancel()+speak() race: only cancel if active
     if (synth.speaking || synth.pending) {
       synth.cancel();
       _cancelTimer = setTimeout(function () {
@@ -195,15 +226,21 @@
 
   /**
    * Speak an English word or sentence.
-   * Speaks synchronously when voices are available (preserving user activation).
+   * - If voices are already loaded, speaks synchronously (keeps user activation).
+   * - If getVoices() is still empty, waits for voiceschanged (up to timeoutMs, default 1.5s)
+   *   then speaks; only if still no English voice, shows a toast.
    * @param {string} text
-   * @param {{ slow?: boolean, rate?: number, pitch?: number, onEnd?: () => void, onError?: (err: string) => void }} [opts]
-   * @returns {{ ok: boolean, reason?: string }}
+   * @param {{ slow?: boolean, rate?: number, pitch?: number, onEnd?: () => void, onError?: (err: string) => void, timeoutMs?: number, silent?: boolean }} [opts]
+   * @returns {Promise<{ ok: boolean, reason?: string }>}
    */
   function speak(text, opts) {
+    const o = opts || {};
     const clean = typeof text === 'string' ? text.trim() : '';
-    if (!clean) return { ok: false, reason: 'empty' };
-    if (!_supported()) return { ok: false, reason: 'unsupported' };
+    if (!clean) return Promise.resolve({ ok: false, reason: 'empty' });
+    if (!isSupported()) {
+      _notifyNoVoice(o);
+      return Promise.resolve({ ok: false, reason: 'unsupported' });
+    }
 
     try {
       const list = window.speechSynthesis.getVoices();
@@ -211,21 +248,25 @@
         _checked = true;
         _englishVoice = _pickEnglishVoice(list);
         if (!_englishVoice) {
-          return { ok: false, reason: 'no_english_voice' };
+          _notifyNoVoice(o);
+          return Promise.resolve({ ok: false, reason: 'no_english_voice' });
         }
-        _enqueue(clean, _englishVoice, opts || {}, true);
-        return { ok: true };
+        _enqueue(clean, _englishVoice, o, true);
+        return Promise.resolve({ ok: true });
       }
 
-      // Voices not populated yet (lazy load in Chromium/Dia): speak immediately with
-      // lang='en-US' (OS default SAPI voice) to stay inside the synchronous user gesture,
-      // and warm up voices in background for subsequent clicks.
-      ensureVoices();
-      _enqueue(clean, null, opts || {}, false);
-      return { ok: true };
+      // Voices still empty (e.g. Dia/Chromium on first click): wait for voiceschanged (max 1.5s)
+      return ensureVoices(o.timeoutMs).then(function (voice) {
+        if (!voice) {
+          _notifyNoVoice(o);
+          return { ok: false, reason: 'no_english_voice' };
+        }
+        _enqueue(clean, voice, o, true);
+        return { ok: true };
+      });
     } catch (err) {
       console.warn('[tts] speak failed:', err);
-      return { ok: false, reason: 'error' };
+      return Promise.resolve({ ok: false, reason: 'error' });
     }
   }
 
@@ -238,12 +279,12 @@
       _cancelTimer = null;
     }
     _activeUtter = null;
-    if (_supported()) {
+    if (isSupported()) {
       try {
         window.speechSynthesis.cancel();
       } catch (_e) { /* ignore */ }
     }
   }
 
-  App.audio.tts = { ensureVoices, status, speak, stop, _pickEnglishVoice };
+  App.audio.tts = { isSupported, ensureVoices, status, speak, stop, _pickEnglishVoice };
 })();

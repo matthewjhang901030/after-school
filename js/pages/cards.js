@@ -14,7 +14,6 @@
   let _root = null;
   let _debounceTimer = null;
   let _busUnsubs = [];
-  let _ttsUnavailable = false;
 
   const _state = {
     search: '',
@@ -233,7 +232,7 @@
       const grid = el('div', { className: 'cards-grid' }, pageItems.map((card) => {
         const prog = progressMap[card.id];
         const boxLabel = prog ? _t('review.box', { n: prog.box }) : _t('cards.box_unseen');
-        const speakDisabled = _ttsUnavailable;
+        const speakDisabled = !(App.audio && App.audio.tts && App.audio.tts.isSupported());
         const noVoiceMsg = _t('cards.no_english_voice');
 
         const speakBtn = el('button', {
@@ -242,7 +241,8 @@
           disabled: speakDisabled,
           title: speakDisabled ? noVoiceMsg : _t('cards.speak_normal'),
           'aria-label': speakDisabled ? noVoiceMsg : `${_t('cards.speak_normal')} ${card.word}`,
-          onClick: () => {
+          onClick: (ev) => {
+            ev.stopPropagation();
             if (App.audio && App.audio.tts) App.audio.tts.speak(card.word, { slow: false });
           },
         }, [App.icons.svg('speaker')]);
@@ -333,19 +333,6 @@
 
     root.replaceChildren(page);
     renderList();
-
-    if (App.audio && App.audio.tts) {
-      App.audio.tts.ensureVoices().then((voice) => {
-        if (!_root) return;
-        const st = App.audio.tts.status();
-        const voicesLoaded = typeof window.speechSynthesis !== 'undefined' && window.speechSynthesis.getVoices().length > 0;
-        const noVoice = !st.supported || (voicesLoaded && !voice);
-        if (noVoice !== _ttsUnavailable) {
-          _ttsUnavailable = noVoice;
-          renderList();
-        }
-      });
-    }
 
     if (App.bus) {
       const onUpdate = () => { if (_root) renderList(); };

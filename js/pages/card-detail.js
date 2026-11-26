@@ -185,17 +185,8 @@
         },
       });
 
-      if (App.audio && App.audio.tts) {
-        App.audio.tts.ensureVoices().then((voice) => {
-          if (!_root) return;
-          const st = App.audio.tts.status();
-          const voicesLoaded = typeof window.speechSynthesis !== 'undefined' && window.speechSynthesis.getVoices().length > 0;
-          const noVoice = !st.supported || (voicesLoaded && !voice);
-          flashcard.setTtsDisabled(noVoice);
-          if (!noVoice && settingsStore && settingsStore.get('autoPlayPronunciation')) {
-            App.audio.tts.speak(card.word, { slow: false });
-          }
-        });
+      if (App.audio && App.audio.tts && App.audio.tts.isSupported() && settingsStore && settingsStore.get('autoPlayPronunciation')) {
+        App.audio.tts.speak(card.word, { slow: false, silent: true });
       }
 
       const actionButtons = [

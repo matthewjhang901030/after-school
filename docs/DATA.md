@@ -1,13 +1,13 @@
 # Data Audit (`docs/DATA.md`)
 
-This document records the exact observed schema of `data/english-2000-data.js` and the JSON content banks used by **放學後 After School**.
+This document records the exact observed schema of `data/english-2000-data.js` and the classic-script content banks (`data/*.js`, assigning to `App.data.*` so double-click `file://` works with zero `fetch()`) used by **放學後 After School**.
 
 ---
 
 ## 1. Course Word List: `data/english-2000-data.js`
 
 - **Format:** Classic browser script assigning `window.ENGLISH_2000_DATA` (1,817,188 bytes).
-- **Access rule:** Kept unmodified. Loaded via `<script src="./data/english-2000-data.js"></script>` before module scripts; only `js/store/cards.js` reads `window.ENGLISH_2000_DATA`.
+- **Access rule:** Kept unmodified. Loaded via `<script src="./data/english-2000-data.js"></script>` before app scripts (classic-script architecture on `window.App`); only `js/store/cards.js` reads `window.ENGLISH_2000_DATA`.
 
 ### 1.1 Top-Level Keys
 
@@ -59,7 +59,8 @@ This document records the exact observed schema of `data/english-2000-data.js` a
 ### 1.3 Mapping to Application `card` Model (Section 3.1)
 
 When `js/store/cards.js` imports `window.ENGLISH_2000_DATA.words`:
-- Rows with the same `word.trim().toLowerCase()` are **merged into one builtin card** (`1,924` unique cards), with primary `id: "b-" + firstRow.id` and `sourceIds: string[]` storing all contributing row IDs (`"0001"`, ...).
+- Non-destructive curation from `data/card-fixes.js` (`App.data.cardFixes`) runs per raw row ID before deduplication.
+- Rows with the same `word.trim().toLowerCase()` are **merged into one builtin card** (`1,924` raw unique words before curation; `1,899` active cards + `29` hidden rows after curation), with primary `id: "b-" + firstRow.id` and `sourceIds: string[]` storing all contributing row IDs (`"0001"`, ...).
 - `word`: `row.word.trim()`
 - `ipa`: `null` (never invented; IPA UI row stays hidden unless user edits it)
 - `pos`: normalized from `row.partOfSpeech` (`"a."` → `"adj."`, etc.; empty or unparseable → `null`)
@@ -74,9 +75,11 @@ When `js/store/cards.js` imports `window.ENGLISH_2000_DATA.words`:
 ### 1.4 Non-Destructive Curation Layer (`data/card-fixes.js`)
 
 Applied in `js/store/cards.js` by raw row ID before case-insensitive deduplication (`data/english-2000-data.js` remains completely unmodified):
-- **Active study/game cards:** `1899` (plus `29` hidden OCR-garbage / section-header rows excluded from study and games).
-- **OCR headword fixes:** `38` rows corrected from textbook `note` & unit context.
-- **Context meaning fixes:** `125` rows corrected (both OCR-damaged words and clearly wrong machine translations).
+- **Active study/game cards:** `1,899` (plus `29` hidden OCR-garbage / section-header rows in Table A excluded from study and games).
+- **Row-level fixes (`rowFixes`):** `130` rows total:
+  - **Table B — OCR headword fixes:** `38` rows (`33` of which also corrected the Chinese meaning, plus `5` word/casing-only fixes).
+  - **Table C — Pure context-meaning fixes:** `92` rows where the headword was already valid.
+  - **Total rows with a meaning (`zh`) update:** `33 + 92 = 125` rows.
 - **Examples:** `665` active cards retain a real human example sentence (`source_771` / `curated_example`); all synthetic `generated_example` meta-templates are hidden (`example: null`) and excluded from games and M7 embeddings; trailing Chinese notes are stripped from `57` mixed examples.
 
 #### A. Hidden Garbage & Section-Header Rows (29 rows)
@@ -156,7 +159,7 @@ Applied in `js/store/cards.js` by raw row ID before case-insensitive deduplicati
 | `1746` | `open foponj` | `open` | 打開 foponj | 打開 | OCR IPA garbage "foponj" glued to open |
 | `1774` | `easy riz` | `easy` | 簡單的riz | 簡單的 | OCR IPA garbage "riz" glued to easy |
 
-#### C. Context-Wrong Meaning Fixes (92 rows)
+#### C. Pure Context-Wrong Meaning Fixes (92 rows; plus 33 meaning fixes in Table B = 125 total)
 
 | Row ID | Word | Old Meaning | New Meaning | Reason |
 |---|---|---|---|---|
@@ -255,13 +258,16 @@ Applied in `js/store/cards.js` by raw row ID before case-insensitive deduplicati
 
 ---
 
-## 2. Planned JSON Content Banks (To Be Populated in Later Milestones)
+## 2. Classic-Script Content Banks (`App.data.*`, `file://`-safe)
 
-| File | Milestone | Status | Purpose |
-|---|---|---|---|
-| `data/walls.json` | M5 / M10 | Not created yet | Handcrafted 4×4 Connections-style walls (drafted & owner-reviewed first). |
-| `data/tense.json` | M8 | Not created yet | Verb-form grammar items (drafted & owner-reviewed first). |
-| `data/broadcast.json` | M10 | Not created yet | Dialogue cloze items (drafted & owner-reviewed first). |
-| `data/class-rules.json` | M10 | Not created yet | Gacha rules for 第 13 節課. |
-| `data/demo-seed.json` | M11 | Not created yet | Two weeks of clearly labelled sample learning data. |
-| `tests/guess-eval.json` | M7 | Not created yet | 30-item evaluation set for 你說我猜 embedding ranking. |
+All content banks load via classic `<script src="...">` tags assigning onto `window.App.data` (no local `fetch()`, matching `docs/DECISIONS.md` #1). Original spec `.json` names are noted in parentheses for traceability.
+
+| File | Namespace | Milestone | Status | Purpose |
+|---|---|---|---|---|
+| `data/card-fixes.js` | `App.data.cardFixes` | M3 | Active | Non-destructive OCR & meaning curation for `english-2000-data.js`. |
+| `data/walls.js` (`walls.json`) | `App.data.walls` | M5 / M10 | Planned | Handcrafted 4×4 Connections-style walls (drafted & owner-reviewed first). |
+| `data/tense.js` (`tense.json`) | `App.data.tense` | M8 | Planned | Verb-form grammar items (drafted & owner-reviewed first). |
+| `data/broadcast.js` (`broadcast.json`) | `App.data.broadcast` | M10 | Planned | Dialogue cloze items (drafted & owner-reviewed first). |
+| `data/class-rules.js` (`class-rules.json`) | `App.data.classRules` | M10 | Planned | Gacha rules for 第 13 節課. |
+| `data/demo-seed.js` (`demo-seed.json`) | `App.data.demoSeed` | M11 | Planned | Two weeks of clearly labelled sample learning data. |
+| `tests/guess-eval.js` (`guess-eval.json`) | `App.data.guessEval` | M7 | Planned | 30-item evaluation set for 你說我猜 embedding ranking. |

@@ -215,7 +215,7 @@
     'cards.prev_page':          '上一頁',
     'cards.next_page':          '下一頁',
     'cards.no_english_voice':   '此裝置沒有英文語音',
-    'cards.speak_normal':       '播放標準發音',
+    'cards.speak_normal':       '發音',
     'cards.speak_slow':         '慢速發音',
     'cards.tap_flip':           '點擊或按空白鍵翻面',
     'cards.flip_back':          '再按一次翻回正面',

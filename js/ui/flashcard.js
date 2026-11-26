@@ -58,11 +58,17 @@
     if (customSize) wordEl.style.fontSize = customSize;
 
     const noVoiceLabel = _t('cards.no_english_voice', '此裝置沒有英文語音');
+    const speakLabel = _t('cards.speak_normal', '發音');
+    const slowLabel = _t('cards.speak_slow', '慢速發音');
+    const apiSupported = App.audio && App.audio.tts
+      ? App.audio.tts.isSupported()
+      : (typeof window !== 'undefined' && Boolean(window.speechSynthesis));
 
     const speakBtn = el('button', {
       type: 'button',
       className: 'btn btn-secondary btn-icon',
-      'aria-label': _t('cards.speak_normal', '播放標準發音'),
+      title: speakLabel,
+      'aria-label': speakLabel,
       onClick: (ev) => {
         ev.stopPropagation();
         if (speakBtn.disabled) return;
@@ -74,7 +80,8 @@
     const slowBtn = el('button', {
       type: 'button',
       className: 'btn btn-secondary btn-icon',
-      'aria-label': _t('cards.speak_slow', '慢速發音'),
+      title: slowLabel,
+      'aria-label': slowLabel,
       onClick: (ev) => {
         ev.stopPropagation();
         if (slowBtn.disabled) return;
@@ -92,14 +99,14 @@
         speakBtn.setAttribute('aria-label', noVoiceLabel);
         slowBtn.setAttribute('aria-label', noVoiceLabel);
       } else {
-        speakBtn.removeAttribute('title');
-        slowBtn.removeAttribute('title');
-        speakBtn.setAttribute('aria-label', _t('cards.speak_normal', '播放標準發音'));
-        slowBtn.setAttribute('aria-label', _t('cards.speak_slow', '慢速發音'));
+        speakBtn.setAttribute('title', speakLabel);
+        slowBtn.setAttribute('title', slowLabel);
+        speakBtn.setAttribute('aria-label', speakLabel);
+        slowBtn.setAttribute('aria-label', slowLabel);
       }
     }
 
-    if (opts.ttsDisabled) {
+    if (opts.ttsDisabled || !apiSupported) {
       setTtsDisabled(true);
     }
 

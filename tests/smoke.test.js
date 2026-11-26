@@ -598,5 +598,79 @@
       assert.equal(typeof ttsStatus.supported, 'boolean');
       window.App.audio.tts.stop();
     });
+
+    test('TTS buttons stay enabled when getVoices() is [] at load, wait for voiceschanged on click, and do not flip card', async () => {
+      const origDesc = Object.getOwnPropertyDescriptor(window, 'speechSynthesis')
+        || Object.getOwnPropertyDescriptor(Window.prototype, 'speechSynthesis');
+      const OrigUtter = window.SpeechSynthesisUtterance;
+      const listeners = new Set();
+      let mockVoices = [];
+      const spoken = [];
+
+      function MockUtterance(text) {
+        this.text = text;
+        this.voice = null;
+        this.lang = '';
+        this.rate = 1;
+        this.pitch = 1;
+      }
+
+      const mockSynth = {
+        speaking: false,
+        pending: false,
+        paused: false,
+        getVoices() { return mockVoices; },
+        addEventListener(type, fn) { if (type === 'voiceschanged') listeners.add(fn); },
+        removeEventListener(type, fn) { if (type === 'voiceschanged') listeners.delete(fn); },
+        speak(u) { spoken.push(u); },
+        cancel() {},
+        resume() {},
+      };
+
+      window.SpeechSynthesisUtterance = MockUtterance;
+      Object.defineProperty(window, 'speechSynthesis', {
+        configurable: true,
+        value: mockSynth,
+      });
+
+      try {
+        const fc = window.App.flashcard.create({ word: 'library', ipa: null, zh: '圖書館' });
+        const btns = fc.root.querySelectorAll('.flashcard-audio button');
+        assert.equal(btns.length, 2);
+        assert.equal(btns[0].disabled, false, 'Speaker button must stay enabled when getVoices() is []');
+        assert.equal(btns[1].disabled, false, 'Slow button must stay enabled when getVoices() is []');
+        assert.ok(btns[0].getAttribute('title'), 'Speaker button needs tooltip');
+        assert.ok(btns[1].getAttribute('title'), 'Slow button needs tooltip');
+
+        let speakPromise = null;
+        const fcWired = window.App.flashcard.create(
+          { word: 'library', ipa: null, zh: '圖書館' },
+          { onSpeak: (slow) => { speakPromise = window.App.audio.tts.speak('library', { slow, timeoutMs: 400 }); } }
+        );
+        fcWired.root.querySelectorAll('.flashcard-audio button')[0].click();
+        assert.equal(fcWired.isFlipped(), false, 'Clicking TTS button must not flip card');
+        assert.equal(spoken.length, 0, 'Should wait while voices are empty');
+
+        setTimeout(() => {
+          mockVoices = [{ name: 'Microsoft Zira Desktop', lang: 'en-US', localService: true }];
+          listeners.forEach((fn) => fn());
+        }, 40);
+
+        const res = await speakPromise;
+        assert.equal(res.ok, true);
+        assert.equal(spoken.length, 1);
+        assert.equal(spoken[0].text, 'library');
+        assert.equal(spoken[0].voice.name, 'Microsoft Zira Desktop');
+
+        mockVoices = [];
+        const noVoiceRes = await window.App.audio.tts.speak('library', { timeoutMs: 60 });
+        assert.equal(noVoiceRes.ok, false);
+        assert.equal(noVoiceRes.reason, 'no_english_voice');
+      } finally {
+        window.SpeechSynthesisUtterance = OrigUtter;
+        if (origDesc) Object.defineProperty(window, 'speechSynthesis', origDesc);
+        else delete window.speechSynthesis;
+      }
+    });
   });
 })();
