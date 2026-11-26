@@ -27,7 +27,7 @@ All handwritten English learning content authored for **放學後 After School**
 | 1 | `vocab` | Weather / 天氣詞彙 | `rain`, `wind`, `snow`, `fog` | 描述雨、風、雪、霧等常見天氣現象的名詞。 |
 | 2 | `vocab` | Four seasons / 一年四季 | `spring`, `summer`, `autumn`, `winter` | 春、夏、秋、冬四個季節名稱。 |
 | 3 | `grammar` | Modal verbs / 情態助動詞 | `can`, `could`, `should`, `may` | 放在原形動詞前，表達能力、請求或建議的助動詞（may 容易被誤看成五月）。 |
-| 4 | `dialogue` | Asking for help / 開口請人幫忙 | `Could you help?`, `Help me out`, `Got a second?`, `Can you check?` | 需要同學或路人協助時常用的簡短英文開頭。 |
+| 4 | `dialogue` | Asking for help / 開口請人幫忙 | `Could you help?`, `Help me out`, `Got a second?`, `Can you help me?` | 需要同學或路人協助時常用的簡短英文開頭。 |
 
 ### `w-03` · 餐桌與點餐 (At the table)
 - **Red herring:** `cut` tempts kitchen/tableware (`knife`); `orange` can look like a color.
@@ -57,7 +57,7 @@ All handwritten English learning content authored for **放學後 After School**
 | 1 | `vocab` | City transport / 城市交通工具 | `subway`, `train`, `taxi`, `bicycle` | 上下學通勤時會搭到或騎到的交通工具。 |
 | 2 | `vocab` | Parts of a building / 建築構造 | `door`, `window`, `floor`, `stairs` | 進出大樓或教室時常見的建築部位。 |
 | 3 | `grammar` | Prepositions of place / 地方介系詞 | `under`, `above`, `between`, `behind` | 描述物體相對位置的介系詞（容易與指路用語混淆）。 |
-| 4 | `dialogue` | Asking and giving directions / 問路與指路 | `Excuse me`, `Turn left`, `Go straight`, `Across from` | 在街上開口問路或指引方向時的常用語。 |
+| 4 | `dialogue` | Asking and giving directions / 問路與指路 | `Which way?`, `Turn left`, `Go straight`, `Across from` | 在街上開口問路或指引方向時的常用語。 |
 
 ### `w-06` · 身體不舒服 (Under the weather)
 - **Red herring:** `head` tempts `headache`; `cold` also looks like weather/temperature.
@@ -67,7 +67,7 @@ All handwritten English learning content authored for **放學後 After School**
 | 1 | `vocab` | Cold symptoms / 感冒與不適症狀 | `fever`, `cough`, `headache`, `cold` | 看醫生時常提到的身體症狀（cold 也是「冷的」）。 |
 | 2 | `vocab` | Body parts / 身體部位 | `head`, `heart`, `stomach`, `shoulder` | 常見的人體部位名詞（head 容易和 headache 混在一起）。 |
 | 3 | `grammar` | Subordinating conjunctions / 從屬連接詞 | `because`, `although`, `while`, `until` | 連接主要子句與原因、讓步或時間子句的連接詞。 |
-| 4 | `dialogue` | Showing care / 關心對方 | `Take care`, `Get well soon`, `Rest well`, `Are you okay?` | 朋友生病或疲累時表達關心的自然用語。 |
+| 4 | `dialogue` | Showing care / 關心對方 | `Take care`, `Get well soon`, `Feel better`, `Are you okay?` | 朋友生病或疲累時表達關心的自然用語。 |
 
 ### `w-07` · 逛街與付錢 (Shopping and money)
 - **Red herring:** `fine` looks like a conversational response ("I'm fine") rather than a fee/penalty.
@@ -107,7 +107,7 @@ All handwritten English learning content authored for **放學後 After School**
 | 1 | `vocab` | Spaces at home / 居家空間 | `kitchen`, `bedroom`, `bathroom`, `garden` | 家裡各個功能空間與庭院的名稱。 |
 | 2 | `vocab` | Furniture / 常見家具 | `table`, `chair`, `sofa`, `desk` | 擺放在客廳、書房或餐廳的家具（table 容易被誤放進廚房空間）。 |
 | 3 | `grammar` | Adjectives ending in -ful / -ful 字尾形容詞 | `careful`, `helpful`, `useful`, `wonderful` | 加上字尾 -ful 表示「充滿……特質」的形容詞。 |
-| 4 | `dialogue` | Apologizing / 道歉用語 | `My bad`, `I'm sorry`, `Excuse me`, `Forgive me` | 不小心做錯事或打擾別人時常用的道歉說法。 |
+| 4 | `dialogue` | Apologizing / 道歉用語 | `My bad`, `I'm sorry`, `Excuse me`, `Sorry about that` | 不小心做錯事或打擾別人時常用的道歉說法。 |
 
 ### `w-11` · 時間與約會 (Time and making plans)
 - **Red herring:** `yesterday`, `today`, `tomorrow` overlap with days of the week (`Monday`–`Sunday`).
@@ -117,7 +117,7 @@ All handwritten English learning content authored for **放學後 After School**
 | 1 | `vocab` | Days of the week / 星期幾 | `Monday`, `Wednesday`, `Friday`, `Sunday` | 一週七天中的四個星期名稱，字首永遠大寫。 |
 | 2 | `vocab` | Months of the year / 月份 | `January`, `April`, `August`, `October` | 一年十二個月中的四個月份名稱，字首永遠大寫。 |
 | 3 | `grammar` | Time adverbs / 時間副詞 | `yesterday`, `today`, `tomorrow`, `already` | 用來標示過去、現在、未來或已完成狀態的時間副詞（容易與星期混在一起）。 |
-| 4 | `dialogue` | Making plans / 約見面與回應邀約 | `See you soon`, `Let's meet up`, `Sounds like fun`, `Count me in` | 和朋友約時間出門或開心答應邀約時的自然短句。 |
+| 4 | `dialogue` | Making plans / 約見面與回應邀約 | `Are you free?`, `Let's meet up`, `Sounds like fun`, `Count me in` | 和朋友約時間出門或開心答應邀約時的自然短句。 |
 
 ### `w-12` · 藝文與道別 (Arts and saying goodbye)
 - **Red herring:** `theater` and `museum` strongly link with arts (`music`, `movie`, `drama`, `poem`).
@@ -127,7 +127,7 @@ All handwritten English learning content authored for **放學後 After School**
 | 1 | `vocab` | Arts and entertainment / 藝文與娛樂 | `music`, `movie`, `drama`, `poem` | 音樂、電影、戲劇與詩歌等藝文領域名詞。 |
 | 2 | `vocab` | Places in town / 市區公共場所 | `museum`, `theater`, `library`, `park` | 週末常去的公共地點（theater 與 museum 容易和藝文領域混淆）。 |
 | 3 | `grammar` | Reflexive pronouns / 反身代名詞 | `myself`, `yourself`, `himself`, `themselves` | 表示「……自己」的反身代名詞，單數結尾為 -self，複數為 -selves。 |
-| 4 | `dialogue` | Saying goodbye / 道別用語 | `See you later`, `Have fun`, `Good night`, `Talk soon` | 聚會結束或放學分開時常用的自然道別語。 |
+| 4 | `dialogue` | Saying goodbye / 道別用語 | `See you later`, `Take it easy`, `Good night`, `Talk soon` | 聚會結束或放學分開時常用的自然道別語。 |
 
 ---
 

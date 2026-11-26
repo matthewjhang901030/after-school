@@ -7,7 +7,7 @@
   'use strict';
 
   const App = (window.App = window.App || {});
-  App.milestone = 'M5';
+  App.milestone = 'M6';
 
   // ─── 1. Database migrations ───────────────────────────────────────────────
   if (App.store && App.store.db) {
@@ -129,6 +129,9 @@
       if (changed.theme) {
         applyTheme(changed.theme);
       }
+      if (changed.aiEngine && App.ai && typeof App.ai.invalidateDetection === 'function') {
+        App.ai.invalidateDetection();
+      }
     });
   }
 
@@ -190,7 +193,8 @@
       getPage: function () { return App.pages && App.pages.settings; },
     });
     App.router.registerLazy('#/settings/ai', {
-      scripts: ['js/pages/ai-diagnostics.js'],
+      styles: ['css/pages/ai.css'],
+      scripts: ['js/ai/templates.js', 'js/ai/nano.js', 'js/ai/qwen.js', 'js/ai/index.js', 'js/ui/ai-panel.js', 'js/pages/ai-diagnostics.js'],
       getPage: function () { return App.pages && App.pages.aiDiagnostics; },
     });
     App.router.registerLazy('#/styleguide', {

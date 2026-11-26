@@ -141,3 +141,21 @@ Every choice not fully specified by `docs/spec/part01.md`–`part11.md`, or reso
     - `App.games.engine` centralizes scoring (`100` base + up to `50` linear speed bonus + `1.5×` combo from 3rd consecutive correct), `performance.now()` + `requestAnimationFrame` delta timing with automatic `visibilitychange` pause, cancellable 3-2-1 countdowns, and confusion-pair persistence (`as.v1.confusions`).
     - `data/walls.js` ships 12 validated handcrafted walls for M5 (all documented for owner review in `docs/CONTENT.md`; planned expansion to 30 walls by T3). Every wall passes `App.games.wallValidate.validateWall()` (4 groups × 4 unique items ≤ 3 words, levels 1–4, all 3 skills `vocab`/`grammar`/`dialogue`, every vocabulary single-word verified in `english-2000-data.js` or grammar whitelist).
     - Per Section 4.5.4, wrong submissions in 四格分類牆 do **not** demote cards to Leitner box 1; instead, every cross-group pair in a wrong submission is logged to `as.v1.confusions`, and 3-of-4 matches show `"差一個"` / `"One away"`. Duplicate wrong combinations do not cost an extra mistake.
+
+---
+
+## M6 — Three-Tier AI Layer & Feature A (錯題解說)
+
+26. **Wall validator updates after M5 owner content review**
+    - Updated 5 dialogue tiles per owner review (`w-02` `"Can you help me?"`, `w-06` `"Feel better"`, `w-10` `"Sorry about that"`, `w-11` `"Are you free?"`, `w-12` `"Take it easy"`) and replaced duplicate `"Excuse me"` in `w-05` with `"Which way?"`.
+    - Tile word-count limit updated from 3 to 4 words in `js/games/wall/validate.js` so short 4-word natural phrases like `"Can you help me?"` pass cleanly while keeping mobile wrapping readable.
+    - Added `findDialogueConflicts(walls)` inside `validateAll()` to reject reusing the same dialogue phrase across two walls under different meanings.
+
+27. **Qwen 2.5 0.5B Instruct ONNX quantization & `file://` Blob Worker**
+    - Because Chrome's Gemini Nano Prompt API was unavailable in our spike, Tier 2 (**`onnx-community/Qwen2.5-0.5B-Instruct`** via Transformers.js `@huggingface/transformers@3.5.1` inside a classic Blob URL Worker) is the primary real AI path under both `file://` and `http(s)://`.
+    - Inspecting Hugging Face ONNX weights showed `model_q4.onnx` is `749.7 MB`, whereas **`model_q4f16.onnx` is `460.63 MB`** (`467.4 MB` total incl. `6.71 MB` `tokenizer.json` + configs) and `model_quantized.onnx` (`q8`) is `488.37 MB` (`495.1 MB` total).
+    - **Measured benchmark (`onnx-community/Qwen2.5-0.5B-Instruct`, Transformers.js 3.5.1, CPU/ONNX):**
+      - `q8` (`model_quantized.onnx`, `495.1 MB`, cold load `49.3 s`, warm load `2.16 s`) severely degraded Chinese instruction following and JSON generation, so `q8` was dropped in favor of **`q4f16`** for both WebGPU and WASM.
+      - `q4f16` (`model_q4f16.onnx`, `467.4 MB`, cold load `48.5 s`, warm load `~2.2 s`, CPU answer `14.6–17.9 s` at 150 tokens; WebGPU in browser is significantly faster) produced valid JSON objects, occasionally emitting a second trailing `{...}` object — handled cleanly by balanced-brace JSON extraction in `App.ai.extractJsonObject()` and `max_new_tokens: 130`. Because Hugging Face redirects may omit `Content-Length`, `qwen.js` falls back to `467.4 MB` so the MB progress bar always advances smoothly.
+    - All AI scripts (`js/ai/*`, `js/ui/ai-panel.js`, `css/pages/ai.css`) lazy-load on first use via `App.loadScripts` so initial `index.html` JS stays well under 300 KB.
+    - Feature A runs spoiler-safe during an active 四格分類牆 round via the **「為什麼錯？」** button after any wrong guess, and with full group rules on the end screen (**「請 AI 解釋錯題」**). Every AI output is validated, rendered strictly via `textContent`, shows source badge + disclaimer, supports `AbortController` Stop + 20s generation timeout, retries once on invalid JSON, and falls back to Tier 3 offline templates without error.

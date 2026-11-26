@@ -26,6 +26,7 @@
   let _clock = null;
   let _countdown = null;
   let _feedbackTimer = null;
+  let _activeAiPanel = null;
 
   function _t(key, params) {
     return App.i18n ? App.i18n.t(key, params) : key;
@@ -90,6 +91,10 @@
       clearTimeout(_feedbackTimer);
       _feedbackTimer = null;
     }
+    if (_activeAiPanel && typeof _activeAiPanel.stop === 'function') {
+      _activeAiPanel.stop();
+      _activeAiPanel = null;
+    }
     if (App.games.engine) App.games.engine.setHudScore('');
   }
 
@@ -126,6 +131,8 @@
     let feedbackMsg = '';
     let feedbackIsOk = false;
     let loggedConfusions = [];
+    let lastMistakeFacts = null;
+    let sessionMistakes = [];
 
     function wallTitle(w) {
       const lang = App.i18n ? App.i18n.lang() : 'zh-TW';
@@ -200,6 +207,8 @@
       feedbackMsg = '';
       feedbackIsOk = false;
       loggedConfusions = [];
+      lastMistakeFacts = null;
+      sessionMistakes = [];
 
       const flat = [];
       wall.groups.forEach((g, gi) => {
@@ -366,6 +375,7 @@
         selected = [];
         feedbackMsg = `${_t('wall.group_solved', { name: grp.labelZh })} (+${scored.points})`;
         feedbackIsOk = true;
+        lastMistakeFacts = null;
         _announce(feedbackMsg);
 
         // Log unified attempt (does not promote Leitner box — Section 3.2)
@@ -449,6 +459,55 @@
 
       feedbackIsOk = false;
       feedbackMsg = maxMatchCount === 3 ? _t('wall.one_away') : _t('wall.wrong_group');
+
+      // Capture grounded FACTS for Feature A ("為什麼錯？" during play & end-screen review)
+      const skillsPresent = Array.from(new Set(selectedTiles.map((t) => t.skill)));
+      const cardMeanings = [];
+      let primaryCard = null;
+      if (cardsStore) {
+        for (const st of selectedTiles) {
+          const found = cardsStore.findByWord(st.text);
+          if (found) {
+            if (!primaryCard) primaryCard = found;
+            cardMeanings.push({ word: found.word, zh: found.zh, pos: found.pos });
+          }
+        }
+      }
+      const majGrp = activeWall.groups[maxMatchGroup];
+      const matchedItems = selectedTiles.filter((t) => t.groupIndex === maxMatchGroup).map((t) => t.text);
+      const oddItems = selectedTiles
+        .filter((t) => t.groupIndex !== maxMatchGroup)
+        .map((t) => ({
+          item: t.text,
+          groupLabel: activeWall.groups[t.groupIndex].label,
+          groupLabelZh: activeWall.groups[t.groupIndex].labelZh,
+        }));
+
+      const baseFacts = {
+        game: 'wall',
+        cardId: primaryCard ? primaryCard.id : null,
+        word: primaryCard ? primaryCard.word : null,
+        meaningZh: primaryCard ? primaryCard.zh : null,
+        pos: primaryCard ? primaryCard.pos : null,
+        errorType: 'confusion',
+        selectedItems: selectedTiles.map((t) => t.text),
+        isOneAway: maxMatchCount === 3,
+        distinctGroupCount: groupCounts.size,
+        skillsPresent,
+        cardMeanings,
+      };
+      lastMistakeFacts = Object.assign({}, baseFacts, { spoilerSafe: true });
+      sessionMistakes.push(Object.assign({}, baseFacts, {
+        spoilerSafe: false,
+        majorityGroup: majGrp ? {
+          label: majGrp.label,
+          labelZh: majGrp.labelZh,
+          ruleZh: majGrp.ruleZh,
+          matchedItems,
+        } : null,
+        oddItems,
+      }));
+
       _announce(feedbackMsg);
       if (App.toast && maxMatchCount === 3) {
         App.toast.show(_t('wall.one_away'));
@@ -644,6 +703,33 @@
         }, [el('span', { className: 'btn-label', text: _t('wall.submit') })]),
       ]);
 
+      function openExplainMistake(factsObj) {
+        const launch = () => {
+          if (App.aiPanel) {
+            _activeAiPanel = App.aiPanel.openModal(factsObj, { title: _t('ai.panel_title') });
+          }
+        };
+        if (App.aiPanel) {
+          launch();
+        } else if (App.loadScripts) {
+          if (App.loadStyles) App.loadStyles(['css/pages/ai.css']);
+          App.loadScripts(['js/ai/templates.js', 'js/ai/nano.js', 'js/ai/qwen.js', 'js/ai/index.js', 'js/ui/ai-panel.js'])
+            .then(launch)
+            .catch(() => { if (App.toast) App.toast.show(_t('error.load')); });
+        }
+      }
+
+      const whyWrongRow = lastMistakeFacts
+        ? el('div', { className: 'wall-why-row' }, [
+          el('button', {
+            type: 'button',
+            className: 'btn btn-secondary',
+            'data-wall-why': 'true',
+            onClick: () => openExplainMistake(lastMistakeFacts),
+          }, [el('span', { className: 'btn-label', text: _t('wall.why_wrong') })]),
+        ])
+        : null;
+
       _root.replaceChildren(
         el('main', { className: 'page-container', role: 'main', id: 'main-content' }, [
           el('div', { className: 'wall-board-wrap', 'data-wall-phase': 'play' }, [
@@ -655,6 +741,7 @@
             solvedBlock,
             grid,
             feedbackEl,
+            whyWrongRow,
             actions,
           ]),
         ])
@@ -674,13 +761,27 @@
         || activeWall;
 
       const actions = [];
-      if (mistakesUsed > 0) {
+      if (mistakesUsed > 0 && sessionMistakes.length > 0) {
         actions.push(
           el('button', {
             type: 'button',
             className: 'btn btn-secondary',
+            'data-wall-ai-end': 'true',
             onClick: () => {
-              if (App.toast) App.toast.show(_t('wall.ai_explain_soon'));
+              const latestMistake = sessionMistakes[sessionMistakes.length - 1];
+              const launch = () => {
+                if (App.aiPanel) {
+                  _activeAiPanel = App.aiPanel.openModal(latestMistake, { title: _t('ai.panel_title') });
+                }
+              };
+              if (App.aiPanel) {
+                launch();
+              } else if (App.loadScripts) {
+                if (App.loadStyles) App.loadStyles(['css/pages/ai.css']);
+                App.loadScripts(['js/ai/templates.js', 'js/ai/nano.js', 'js/ai/qwen.js', 'js/ai/index.js', 'js/ui/ai-panel.js'])
+                  .then(launch)
+                  .catch(() => { if (App.toast) App.toast.show(_t('error.load')); });
+              }
             },
           }, [el('span', { className: 'btn-label', text: _t('game.ai_explain') })])
         );

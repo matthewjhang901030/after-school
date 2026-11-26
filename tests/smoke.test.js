@@ -1055,10 +1055,22 @@
       noDialogue.groups.forEach((g) => { if (g.skill === 'dialogue') g.skill = 'vocab'; });
       assert.equal(validator.validateWall(noDialogue).valid, false, 'Missing dialogue skill must fail');
 
-      // Over 3 words rejected
+      // Over 4 words rejected
       const tooLong = JSON.parse(JSON.stringify(walls[0]));
       tooLong.groups[2].items[0] = 'This phrase has five words';
-      assert.equal(validator.validateWall(tooLong).valid, false, 'Item > 3 words must fail');
+      assert.equal(validator.validateWall(tooLong).valid, false, 'Item > 4 words must fail');
+
+      // Cross-wall dialogue phrase conflict rejected
+      assert.equal(res.dialogueConflicts.length, 0, 'No conflicting dialogue phrases across curated walls');
+      const conflictPair = [
+        JSON.parse(JSON.stringify(walls[0])),
+        JSON.parse(JSON.stringify(walls[1])),
+      ];
+      conflictPair[1].groups.find((g) => g.skill === 'dialogue').items[0] =
+        conflictPair[0].groups.find((g) => g.skill === 'dialogue').items[0];
+      const conflicts = validator.findDialogueConflicts(conflictPair);
+      assert.ok(conflicts.length >= 1, 'Conflicting dialogue phrase across two walls must be caught');
+      assert.equal(validator.validateAll(conflictPair).valid, false, 'validateAll must fail on dialogue conflict');
 
       // Unknown single word rejected
       const unknownWord = JSON.parse(JSON.stringify(walls[0]));
@@ -1162,6 +1174,7 @@
         mountRoot.querySelector('[data-wall-submit="true"]').click();
         const fb = mountRoot.querySelector('.wall-feedback');
         assert.ok(fb && fb.textContent.includes('差一個'), '3-of-4 wrong guess shows 差一個');
+        assert.ok(mountRoot.querySelector('[data-wall-why="true"]'), 'Wrong guess shows 「為什麼錯？」 AI button');
         assert.equal(mountRoot.querySelectorAll('.wall-dot.is-spent').length, 1, '1 mistake deducted');
         assert.ok(engine.getConfusionPairs().length >= 3, 'Cross-group confusion pairs logged');
         if (notebookCard) {
@@ -1192,6 +1205,174 @@
         window.App.store.db.remove('as.v1.progress');
         attempts.invalidate();
         leitner.invalidate();
+      }
+    });
+  });
+
+  // ── M6: 3-Tier AI Layer & Feature A (錯題解說) ──────────────────────────
+  suite('M6 · AI Layer (3 Tiers), Validation & Feature A', ({ test, assert }) => {
+    const sampleFacts = {
+      game: 'class13',
+      cardId: 'b-0001',
+      word: 'receive',
+      meaningZh: '收到',
+      pos: 'v.',
+      expected: 'receive',
+      userAnswer: 'recieve',
+      errorType: 'spelling',
+      wrongLetters: ['i', 'e'],
+      cardExample: 'Did you receive my letter?',
+    };
+
+    test('validateFeatureAOutput checks JSON schema, strips hallucinated examples, and preserves valid examples', () => {
+      const ai = window.App.ai;
+      // Valid JSON wrapped in markdown fences with exact word in example
+      const ok = ai.validateFeatureAOutput(
+        '```json\n{"why":"i and e were swapped.","tip":"Remember i before e except after c.","example":"I will receive the package today."}\n```',
+        sampleFacts
+      );
+      assert.equal(ok.valid, true);
+      assert.ok(ok.data.example && ok.data.example.includes('receive'));
+
+      // Example missing target word is dropped (Section 5.5)
+      const dropped = ai.validateFeatureAOutput(
+        '{"why":"Spelling slip.","tip":"Check ei after c.","example":"The cat sat on the mat."}',
+        sampleFacts
+      );
+      assert.equal(dropped.valid, true);
+      assert.equal(dropped.data.example, null, 'Example without target word must be dropped');
+
+      // Multi-object rambling output from small 0.5B models still extracts first balanced JSON object
+      const multi = ai.validateFeatureAOutput(
+        '{"why":"Check c before ei.","tip":"Split re-ceive.","example":"I will receive it."}, {"why":"extra"}',
+        sampleFacts
+      );
+      assert.equal(multi.valid, true, 'Balanced-brace extraction handles trailing second object');
+      assert.equal(multi.data.why, 'Check c before ei.');
+
+      // Invalid JSON or missing required fields rejected
+      assert.equal(ai.validateFeatureAOutput('not json at all', sampleFacts).valid, false);
+      assert.equal(ai.validateFeatureAOutput('{"why":"only why"}', sampleFacts).valid, false);
+    });
+
+    test('Feature A works in all 3 tiers when forced from Settings and falls back to template on invalid JSON', async () => {
+      const ai = window.App.ai;
+      const settings = window.App.store.settings;
+      const origEngine = settings.get('aiEngine');
+      const origNanoGen = ai.nano.generate;
+      const origNanoDetect = ai.nano.detect;
+      const origNanoTrans = ai.nano.translateEnToZh;
+      const origQwenInit = ai.qwen.init;
+      const origQwenGen = ai.qwen.generate;
+      const origQwenSup = ai.qwen.isSupported;
+
+      try {
+        // Tier 3: Forced offline template
+        settings.update({ aiEngine: 'templates' });
+        ai.invalidateDetection();
+        const rTpl = await ai.explainMistake(sampleFacts);
+        assert.equal(rTpl.source, 'template');
+        assert.equal(rTpl.fellBack, false);
+        assert.ok(rTpl.why.includes('receive') && rTpl.tip.length > 0);
+
+        // Tier 1: Forced Nano (mocked LanguageModel + Translator)
+        ai.nano.detect = async () => ({ available: true, ready: true, availability: 'available', translatorAvailability: 'available' });
+        ai.nano.generate = async () => ({
+          text: '{"why":"You swapped i and e.","tip":"Remember ei after c.","example":"Did you receive my message?"}',
+          elapsedMs: 120,
+        });
+        ai.nano.translateEnToZh = async (s) => '[ZH] ' + s;
+        settings.update({ aiEngine: 'nano' });
+        ai.invalidateDetection();
+        const rNano = await ai.explainMistake(sampleFacts);
+        assert.equal(rNano.source, 'nano');
+        assert.equal(rNano.fellBack, false);
+        assert.ok(rNano.why.startsWith('[ZH] '), 'Nano output translated when Translator is available');
+        assert.ok(rNano.example && rNano.example.includes('receive'));
+
+        // Tier 2: Forced Qwen (mocked Blob Worker)
+        ai.qwen.isSupported = () => true;
+        ai.qwen.init = async () => ({ loadMs: 50, device: 'wasm', dtype: 'q8' });
+        ai.qwen.generate = async () => ({
+          text: '{"why":"「receive」的 c 後面要接 ei。","tip":"口訣：c 後面是 ei。","example":"Please receive this gift."}',
+          elapsedMs: 240,
+          loadMs: 50,
+          tokensPerSec: 18.5,
+        });
+        settings.update({ aiEngine: 'qwen' });
+        ai.invalidateDetection();
+        const rQwen = await ai.explainMistake(sampleFacts);
+        assert.equal(rQwen.source, 'qwen');
+        assert.equal(rQwen.fellBack, false);
+        assert.ok(rQwen.why.includes('receive'));
+
+        // Invalid JSON from Qwen retries once and then falls back cleanly to template (Section 5.4)
+        let qwenCalls = 0;
+        ai.qwen.generate = async () => {
+          qwenCalls++;
+          return { text: 'sorry I cannot format json', elapsedMs: 30, loadMs: 0, tokensPerSec: null };
+        };
+        const rFallback = await ai.explainMistake(sampleFacts);
+        assert.equal(qwenCalls, 2, 'Must retry once on invalid JSON before falling back');
+        assert.equal(rFallback.source, 'template');
+        assert.equal(rFallback.fellBack, true);
+        assert.equal(rFallback.note, 'invalid_json');
+        assert.ok(rFallback.why.includes('receive'), 'Fallback template still explains the mistake');
+      } finally {
+        ai.nano.generate = origNanoGen;
+        ai.nano.detect = origNanoDetect;
+        ai.nano.translateEnToZh = origNanoTrans;
+        ai.qwen.init = origQwenInit;
+        ai.qwen.generate = origQwenGen;
+        ai.qwen.isSupported = origQwenSup;
+        settings.update({ aiEngine: origEngine });
+        ai.invalidateDetection();
+      }
+    });
+
+    test('AI panel renders textContent safely (no HTML injection), supports Stop, and saves tip to card', async () => {
+      const ai = window.App.ai;
+      const origExplain = ai.explainMistake;
+      const cards = window.App.store.cards;
+      const tempCard = cards.add({ word: 'quilltest', zh: '羽毛筆' });
+
+      try {
+        ai.explainMistake = async () => ({
+          why: '<img src=x onerror=alert(1)> spelling check',
+          tip: 'Remember quill starts with qu.',
+          example: 'She wrote with a quilltest pen.',
+          source: 'qwen',
+          fellBack: false,
+          note: null,
+          elapsedMs: 420,
+        });
+
+        const panel = window.App.aiPanel.create({
+          game: 'class13',
+          cardId: tempCard.id,
+          word: tempCard.word,
+          meaningZh: tempCard.zh,
+        }, { autoStart: false });
+
+        await panel.start('qwen');
+        const whyEl = panel.root.querySelector('[data-ai-why="true"]');
+        assert.ok(whyEl, 'Why text rendered');
+        assert.equal(whyEl.querySelectorAll('img').length, 0, 'Model output must never be parsed as HTML');
+        assert.ok(whyEl.textContent.includes('<img src=x'), 'Raw text rendered safely via textContent');
+
+        // Disclaimer always shown (Section 5.6)
+        assert.ok(panel.root.textContent.includes(window.App.i18n.t('ai.disclaimer')));
+
+        // Clicking "存到卡片" saves aiTip to card
+        const saveBtn = Array.from(panel.root.querySelectorAll('button')).find((b) =>
+          b.textContent.includes(window.App.i18n.t('ai.save_to_card'))
+        );
+        assert.ok(saveBtn, 'Save to card button present');
+        saveBtn.click();
+        assert.equal(cards.getById(tempCard.id).aiTip, 'Remember quill starts with qu.');
+      } finally {
+        ai.explainMistake = origExplain;
+        cards.removeUserCard(tempCard.id);
       }
     });
   });

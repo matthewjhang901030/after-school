@@ -129,8 +129,8 @@
         }
         const trimmed = rawItem.trim();
         const words = trimmed.split(/\s+/);
-        if (words.length > 3) {
-          errors.push(`${prefix} item "${trimmed}" exceeds 3-word tile limit`);
+        if (words.length > 4) {
+          errors.push(`${prefix} item "${trimmed}" exceeds 4-word tile limit`);
         }
 
         const key = trimmed.toLowerCase();
@@ -166,10 +166,47 @@
   }
 
   /**
-   * Validate an array of walls and return summary + invalid details.
+   * Check across multiple walls that the same dialogue phrase is never reused
+   * in two different walls' dialogue groups with conflicting meanings (labels).
+   * @param {Array<Object>} walls
+   * @returns {Array<{ phrase: string, wallA: string, labelA: string, wallB: string, labelB: string }>}
+   */
+  function findDialogueConflicts(walls) {
+    const list = Array.isArray(walls) ? walls : [];
+    const seen = new Map(); // normalized phrase -> { wallId, labelKey, label }
+    const conflicts = [];
+
+    for (const w of list) {
+      if (!w || !Array.isArray(w.groups)) continue;
+      for (const g of w.groups) {
+        if (!g || g.skill !== 'dialogue' || !Array.isArray(g.items)) continue;
+        const labelKey = String(g.label || g.labelZh || '').trim().toLowerCase();
+        for (const raw of g.items) {
+          const norm = _cleanToken(raw);
+          if (!norm) continue;
+          const prev = seen.get(norm);
+          if (prev && prev.wallId !== w.id && prev.labelKey !== labelKey) {
+            conflicts.push({
+              phrase: String(raw).trim(),
+              wallA: prev.wallId,
+              labelA: prev.label,
+              wallB: w.id,
+              labelB: g.label || g.labelZh || '',
+            });
+          } else if (!prev) {
+            seen.set(norm, { wallId: w.id, labelKey, label: g.label || g.labelZh || '' });
+          }
+        }
+      }
+    }
+    return conflicts;
+  }
+
+  /**
+   * Validate an array of walls and return summary + invalid details + dialogue conflicts.
    * @param {Array<Object>} walls
    * @param {Object} [opts]
-   * @returns {{ valid: boolean, validWalls: Array<Object>, failures: Array<{ id: string, errors: string[] }> }}
+   * @returns {{ valid: boolean, validWalls: Array<Object>, failures: Array<{ id: string, errors: string[] }>, dialogueConflicts: Array<Object> }}
    */
   function validateAll(walls, opts) {
     const list = Array.isArray(walls) ? walls : [];
@@ -180,13 +217,20 @@
       if (res.valid) validWalls.push(w);
       else failures.push({ id: (w && w.id) || '(unknown)', errors: res.errors });
     }
-    return { valid: failures.length === 0 && validWalls.length > 0, validWalls, failures };
+    const dialogueConflicts = findDialogueConflicts(validWalls);
+    return {
+      valid: failures.length === 0 && dialogueConflicts.length === 0 && validWalls.length > 0,
+      validWalls,
+      failures,
+      dialogueConflicts,
+    };
   }
 
   App.games.wallValidate = {
     VALID_SKILLS,
     GRAMMAR_WHITELIST,
     validateWall,
+    findDialogueConflicts,
     validateAll,
   };
 })();
