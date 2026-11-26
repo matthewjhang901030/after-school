@@ -19,9 +19,10 @@ Integrated browser-only English learning website for Taiwanese university studen
 
 ## Project Status
 
-- **Current milestone:** M4 (Design system, app shell, i18n zh-TW/en, storage + migrations, flashcards, Leitner 5-box review queue & Today's Review, unified attempt log with 5,000-entry daily compaction, completed sessions, card learning history timeline, 3-step first-visit onboarding, TTS pronunciation, card CRUD + decks, and non-destructive course-data curation)
+- **Current milestone:** M5 (Design system, app shell, `file://`-safe classic-script lazy loader, i18n zh-TW/en, storage + migrations, flashcards, Leitner 5-box review, attempt log with daily compaction, onboarding, shared game engine, and 四格分類牆 with 12 validated walls + 今日之牆)
 - **Specification:** `docs/spec/part01.md` – `docs/spec/part11.md`
 - **Data audit & curation log:** `docs/DATA.md`
+- **Authored English content for review:** `docs/CONTENT.md`
 - **Design & implementation decisions:** `docs/DECISIONS.md`
 
 ## Browser Support (Target)
@@ -29,7 +30,8 @@ Integrated browser-only English learning website for Taiwanese university studen
 - Chrome / Edge / Dia desktop (latest; Chrome 148+ for optional built-in Prompt API over `http(s)://`)
 - Safari iOS, Chrome Android
 
-## Known Limits (Through M4)
+## Known Limits (Through M5)
 
 - Builtin vocabulary comes from `data/english-2000-data.js` (unmodified) with non-destructive OCR and translation curation in `data/card-fixes.js`.
-- The three mini-games (M5–M10), in-browser AI tutoring (M6–M11), Dashboard timetable & charts (M9), and offline Service Worker (M12) are staged stubs until their respective milestones.
+- Curated walls (`data/walls.js`) currently ship 12 validated walls (expanding to 30 by T3).
+- In-browser AI tutoring (M6–M11), 你說我猜 (M7), 第 13 節課 (M8/M10), Dashboard timetable & charts (M9/M11), and offline Service Worker (M12) are staged until their respective milestones.

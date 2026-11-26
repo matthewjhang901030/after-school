@@ -126,3 +126,18 @@ Every choice not fully specified by `docs/spec/part01.md`–`part11.md`, or reso
 
 23. **First-visit 3-step onboarding presentation (`js/ui/onboarding.js`)**
     - On first visit (`!settings.get('onboarded')`), Dashboard (`#/`) renders the 3-step onboarding card inline at the top (Step 1: pick daily new words; Step 2: flip a real builtin sample card; Step 3: done + jump to `#/review`, with a Skip option at every step) so it stays mobile-friendly at 375px and never steals focus or blocks route navigation. Learners can also replay it anytime via Settings (`App.onboarding.open()`).
+
+---
+
+## M5 — Lazy Loading Budget, Shared Game Engine & 四格分類牆
+
+24. **JS 300 KB budget applies to initial load via `file://`-safe classic-script lazy loader (`js/util/loader.js`)**
+    - Per owner rule update before M5, the ~300 KB application JS budget covers the **initial load** (`<script>` tags loaded by `index.html` on first paint).
+    - `App.loadScripts(paths)` and `App.loadStyles(paths)` dynamically inject classic `<script src="./...">` / `<link rel="stylesheet">` tags on first visit to a route, preserving execution order, deduplicating already-loaded and in-flight paths, and clearing failed entries so a Retry button reloads cleanly under both `file://` and `http(s)://`.
+    - `App.router.registerLazy(path, { scripts, styles, getPage })` renders a loading state while fetching, discards stale navigations if the user switches routes mid-load, and renders an error panel with a Retry button on failure.
+    - Non-core pages (`cards`, `card-detail`, `review`, `decks`, `games`, `stats`, `stamps`, `settings`, `ai-diagnostics`, `styleguide`), secondary UI (`card-form.js`, `keyboard.js`), games (`engine.js`, `wall/*`, `class13/*`, `guess/*`), and content banks (`data/walls.js`, future `tense.js`, `broadcast.js`, `class-rules.js`) load lazily on first visit.
+
+25. **Shared game engine & 四格分類牆 rules (`js/games/engine.js`, `js/games/wall/*`, `data/walls.js`)**
+    - `App.games.engine` centralizes scoring (`100` base + up to `50` linear speed bonus + `1.5×` combo from 3rd consecutive correct), `performance.now()` + `requestAnimationFrame` delta timing with automatic `visibilitychange` pause, cancellable 3-2-1 countdowns, and confusion-pair persistence (`as.v1.confusions`).
+    - `data/walls.js` ships 12 validated handcrafted walls for M5 (all documented for owner review in `docs/CONTENT.md`; planned expansion to 30 walls by T3). Every wall passes `App.games.wallValidate.validateWall()` (4 groups × 4 unique items ≤ 3 words, levels 1–4, all 3 skills `vocab`/`grammar`/`dialogue`, every vocabulary single-word verified in `english-2000-data.js` or grammar whitelist).
+    - Per Section 4.5.4, wrong submissions in 四格分類牆 do **not** demote cards to Leitner box 1; instead, every cross-group pair in a wrong submission is logged to `as.v1.confusions`, and 3-of-4 matches show `"差一個"` / `"One away"`. Duplicate wrong combinations do not cost an extra mistake.

@@ -941,4 +941,258 @@
       }
     });
   });
+
+  // ── M5: Lazy Loader, Shared Game Engine & 四格分類牆 ─────────────────────
+  suite('M5 · Lazy Loader, Game Engine & Four-Group Wall', ({ test, assert }) => {
+    test('App.loadScripts deduplicates loads and cleans up failed tags so Retry succeeds', async () => {
+      const target = document.head || document.body || document.documentElement;
+      const origAppend = target.appendChild.bind(target);
+      const injected = [];
+      let failOnce = true;
+
+      target.appendChild = function (node) {
+        if (node && node.tagName === 'SCRIPT' && String(node.src || '').includes('__test_lazy_')) {
+          injected.push(node.src);
+          const res = origAppend(node);
+          setTimeout(() => {
+            if (String(node.src).includes('__test_lazy_flaky') && failOnce) {
+              failOnce = false;
+              if (typeof node.onerror === 'function') node.onerror(new Error('net'));
+            } else if (typeof node.onload === 'function') {
+              node.onload();
+            }
+          }, 10);
+          return res;
+        }
+        return origAppend(node);
+      };
+
+      try {
+        // Deduplication: loading the same script twice injects it only once
+        await window.App.loadScripts(['js/__test_lazy_ok.js']);
+        await window.App.loadScripts(['./js/__test_lazy_ok.js']);
+        const okCount = injected.filter((s) => s.includes('__test_lazy_ok')).length;
+        assert.equal(okCount, 1, 'Same script must never be loaded twice');
+
+        // Failure cleanup + Retry recovery
+        let failed = false;
+        try {
+          await window.App.loadScripts(['js/__test_lazy_flaky.js']);
+        } catch (_e) {
+          failed = true;
+        }
+        assert.equal(failed, true, 'First flaky load must reject');
+        assert.equal(window.App.loader.isLoaded('js/__test_lazy_flaky.js'), false, 'Failed script must not be marked loaded');
+
+        await window.App.loadScripts(['js/__test_lazy_flaky.js']);
+        assert.equal(window.App.loader.isLoaded('js/__test_lazy_flaky.js'), true, 'Retry after failure succeeds');
+      } finally {
+        target.appendChild = origAppend;
+        target.querySelectorAll('script').forEach((s) => {
+          if (String(s.src || '').includes('__test_lazy_')) s.remove();
+        });
+      }
+    });
+
+    test('router.registerLazy shows loading state, error + Retry button on failure, then mounts on Retry', async () => {
+      const mountRoot = document.getElementById('test-router-root');
+      const origLoad = window.App.loadScripts;
+      let attempt = 0;
+      let mounted = false;
+
+      window.App.loadScripts = function () {
+        attempt++;
+        if (attempt === 1) return Promise.reject(new Error('simulated load error'));
+        return new Promise((resolve) => setTimeout(resolve, 15));
+      };
+
+      try {
+        window.App.router.registerLazy('#/__test-lazy-route', {
+          scripts: ['js/__nonexistent_lazy.js'],
+          getPage: () => ({
+            mount(r) {
+              mounted = true;
+              r.replaceChildren(window.App.dom.el('div', { 'data-lazy-ok': 'true', text: 'OK' }));
+            },
+            unmount() {},
+          }),
+        });
+
+        window.App.router.navigate('#/__test-lazy-route');
+        await new Promise((r) => setTimeout(r, 20));
+        const errBox = mountRoot.querySelector('[data-route-state="error"]');
+        assert.ok(errBox, 'Error state shown when lazy script fails');
+        const retryBtn = errBox.querySelector('button');
+        assert.ok(retryBtn, 'Retry button present on lazy load error');
+
+        retryBtn.click();
+        assert.ok(mountRoot.querySelector('[data-route-state="loading"]'), 'Loading state shown while retrying');
+        await new Promise((r) => setTimeout(r, 40));
+        assert.equal(mounted, true, 'Lazy page mounted after Retry');
+        assert.ok(mountRoot.querySelector('[data-lazy-ok="true"]'));
+      } finally {
+        window.App.loadScripts = origLoad;
+        window.App.router.navigate('#/');
+      }
+    });
+
+    test('wall validator approves all handcrafted walls in data/walls.js and catches invalid walls', () => {
+      const validator = window.App.games.wallValidate;
+      const walls = window.App.data && window.App.data.walls;
+      assert.ok(Array.isArray(walls) && walls.length >= 10, 'At least 10 handcrafted walls present');
+
+      const res = validator.validateAll(walls);
+      assert.equal(res.failures.length, 0, 'All curated walls pass validation: ' + JSON.stringify(res.failures));
+      assert.equal(res.validWalls.length, walls.length);
+
+      // Duplicate item rejected
+      const dupWall = JSON.parse(JSON.stringify(walls[0]));
+      dupWall.groups[1].items[0] = dupWall.groups[0].items[0].toUpperCase();
+      assert.equal(validator.validateWall(dupWall).valid, false, 'Case-insensitive duplicate item must fail');
+
+      // Missing skill rejected
+      const noDialogue = JSON.parse(JSON.stringify(walls[0]));
+      noDialogue.groups.forEach((g) => { if (g.skill === 'dialogue') g.skill = 'vocab'; });
+      assert.equal(validator.validateWall(noDialogue).valid, false, 'Missing dialogue skill must fail');
+
+      // Over 3 words rejected
+      const tooLong = JSON.parse(JSON.stringify(walls[0]));
+      tooLong.groups[2].items[0] = 'This phrase has five words';
+      assert.equal(validator.validateWall(tooLong).valid, false, 'Item > 3 words must fail');
+
+      // Unknown single word rejected
+      const unknownWord = JSON.parse(JSON.stringify(walls[0]));
+      unknownWord.groups[0].items[0] = 'xyzzynotaword';
+      assert.equal(validator.validateWall(unknownWord).valid, false, 'Unknown single word must fail');
+    });
+
+    test('shared game engine scores speed bonus + 1.5x combo, pauses clock on visibilitychange, and tracks confusion pairs', () => {
+      const engine = window.App.games.engine;
+      const s1 = engine.scoreCorrect(0, 8000, 1);
+      assert.equal(s1.points, 150, 'Full speed bonus = 100 + 50');
+      assert.equal(s1.isCombo, false);
+
+      const s2 = engine.scoreCorrect(4000, 8000, 2);
+      assert.equal(s2.points, 125, 'Half speed bonus = 100 + 25');
+
+      const s3 = engine.scoreCorrect(8000, 8000, 3);
+      assert.equal(s3.points, 150, '3rd consecutive correct applies 1.5x combo (100 * 1.5)');
+      assert.equal(s3.isCombo, true);
+
+      // Clock pauses on visibilitychange
+      let pausedHit = false;
+      const clock = engine.createClock({ onPause: () => { pausedHit = true; } });
+      clock.start();
+      const origHiddenDesc = Object.getOwnPropertyDescriptor(document, 'hidden');
+      try {
+        Object.defineProperty(document, 'hidden', { configurable: true, value: true });
+        document.dispatchEvent(new Event('visibilitychange'));
+        assert.equal(pausedHit, true, 'Clock auto-pauses when tab hides');
+        assert.equal(clock.isPaused(), true);
+        clock.resume();
+        assert.equal(clock.isPaused(), false);
+      } finally {
+        clock.stop();
+        if (origHiddenDesc) Object.defineProperty(document, 'hidden', origHiddenDesc);
+        else document.hidden = false;
+      }
+
+      // Confusion pair storage
+      window.App.store.db.remove('as.v1.confusions');
+      try {
+        engine.recordConfusionPair('table', 'kitchen', { wallId: 'w-10' });
+        engine.recordConfusionPair('Kitchen', 'Table', { wallId: 'w-10' });
+        const pairs = engine.getConfusionPairs();
+        assert.equal(pairs.length, 1, 'Confusion pairs normalize order and case');
+        assert.equal(pairs[0].count, 2);
+      } finally {
+        window.App.store.db.remove('as.v1.confusions');
+      }
+    });
+
+    test('四格分類牆 plays full wall, shows 差一個, logs confusion pairs without box-1 drop, and seeds 今日之牆', () => {
+      const wallGame = window.App.games.wall;
+      const attempts = window.App.store.attempts;
+      const leitner = window.App.store.leitner;
+      const engine = window.App.games.engine;
+      const mountRoot = document.getElementById('test-router-root');
+
+      // Deterministic daily wall
+      const d1 = wallGame.getDailyWall('2026-12-10');
+      const d2 = wallGame.getDailyWall('2026-12-10');
+      assert.ok(d1 && d1.id === d2.id, '今日之牆 must be deterministic per local dayKey');
+
+      window.App.store.db.remove('as.v1.confusions');
+      window.App.store.db.remove('as.v1.wall.progress');
+      window.App.store.db.remove('as.v1.attempts');
+      window.App.store.db.remove('as.v1.sessions');
+      window.App.store.db.remove('as.v1.progress');
+      attempts.invalidate();
+      leitner.invalidate();
+
+      const w1 = window.App.data.walls[0];
+      const notebookCard = window.App.store.cards.findByWord('notebook');
+      // Place notebook in box 3 beforehand to prove wrong wall guesses do NOT drop it to box 1
+      if (notebookCard) {
+        leitner.rateCard(notebookCard.id, 'know', '2026-12-01');
+        leitner.rateCard(notebookCard.id, 'know', '2026-12-03');
+        assert.equal(leitner.get(notebookCard.id).box, 3);
+      }
+
+      try {
+        wallGame.mount(mountRoot, { query: { wall: w1.id, instant: '1' } });
+        assert.ok(mountRoot.querySelector('[data-wall-phase="play"]'), 'Wall board mounted');
+        assert.equal(mountRoot.querySelectorAll('[data-tile]').length, 16, '16 tiles rendered');
+
+        function clickTile(text) {
+          const btn = Array.from(mountRoot.querySelectorAll('[data-tile]')).find((b) => b.getAttribute('data-tile') === text);
+          assert.ok(btn, 'Tile present: ' + text);
+          btn.click();
+        }
+
+        // Select 5 items -> capped at 4
+        clickTile(w1.groups[0].items[0]);
+        clickTile(w1.groups[0].items[1]);
+        clickTile(w1.groups[0].items[2]);
+        clickTile(w1.groups[1].items[0]); // 3 from group 0 + 1 from group 1
+        clickTile(w1.groups[1].items[1]); // 5th click ignored
+        assert.equal(mountRoot.querySelectorAll('.wall-tile.is-selected').length, 4, 'Selection capped at 4');
+
+        // Submit 3-of-4 -> "差一個", logs confusion pairs, does NOT demote notebook from box 3
+        mountRoot.querySelector('[data-wall-submit="true"]').click();
+        const fb = mountRoot.querySelector('.wall-feedback');
+        assert.ok(fb && fb.textContent.includes('差一個'), '3-of-4 wrong guess shows 差一個');
+        assert.equal(mountRoot.querySelectorAll('.wall-dot.is-spent').length, 1, '1 mistake deducted');
+        assert.ok(engine.getConfusionPairs().length >= 3, 'Cross-group confusion pairs logged');
+        if (notebookCard) {
+          assert.equal(leitner.get(notebookCard.id).box, 3, 'Wall mistake must NOT drop card to Leitner box 1');
+        }
+
+        // Re-submitting identical wrong guess does not deduct another mistake
+        mountRoot.querySelector('[data-wall-submit="true"]').click();
+        assert.equal(mountRoot.querySelectorAll('.wall-dot.is-spent').length, 1, 'Duplicate wrong guess costs 0 mistakes');
+
+        // Deselect all, then solve all 4 groups
+        mountRoot.querySelectorAll('.wall-actions button')[1].click();
+        for (const g of w1.groups) {
+          for (const item of g.items) clickTile(item);
+          mountRoot.querySelector('[data-wall-submit="true"]').click();
+        }
+
+        assert.ok(mountRoot.querySelector('[data-wall-phase="end"]'), 'End screen shown after solving all 4 groups');
+        assert.ok(mountRoot.querySelector('.stamp'), 'End screen shows commemorative stamp');
+        assert.equal(mountRoot.querySelectorAll('.wall-item-chip').length, 16, 'All 16 tappable item chips rendered');
+        assert.equal(attempts.getSessions('wall').length, 1, 'Completed wall saved 1 session');
+      } finally {
+        wallGame.unmount();
+        window.App.store.db.remove('as.v1.confusions');
+        window.App.store.db.remove('as.v1.wall.progress');
+        window.App.store.db.remove('as.v1.attempts');
+        window.App.store.db.remove('as.v1.sessions');
+        window.App.store.db.remove('as.v1.progress');
+        attempts.invalidate();
+        leitner.invalidate();
+      }
+    });
+  });
 })();

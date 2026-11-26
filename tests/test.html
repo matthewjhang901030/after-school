@@ -138,6 +138,7 @@
   <!-- Data -->
   <script src="../data/english-2000-data.js"></script>
   <script src="../data/card-fixes.js"></script>
+  <script src="../data/walls.js"></script>
 
   <!-- Utilities -->
   <script src="../js/util/dom.js"></script>
@@ -145,6 +146,7 @@
   <script src="../js/util/random.js"></script>
   <script src="../js/util/text.js"></script>
   <script src="../js/util/format.js"></script>
+  <script src="../js/util/loader.js"></script>
 
   <!-- Store -->
   <script src="../js/store/db.js"></script>
@@ -192,14 +194,17 @@
   <script src="../js/pages/settings.js"></script>
   <script src="../js/pages/ai-diagnostics.js"></script>
 
-  <!-- Games stubs -->
+  <!-- Games -->
+  <script src="../js/games/engine.js"></script>
   <script src="../js/games/class13/index.js"></script>
   <script src="../js/games/guess/index.js"></script>
+  <script src="../js/games/wall/validate.js"></script>
   <script src="../js/games/wall/index.js"></script>
   <script>
     (function () {
       'use strict';
       const App = window.App;
+      App._assetBase = '../';
       const P = App.pages;
       const G = App.games;
       App.store.db.runMigrations();

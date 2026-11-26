@@ -21,6 +21,7 @@
   let _restoringHash = false;
   let _bypassExitGuard = false;
   let _skipNextHash = null;
+  let _navToken = 0;
 
   const GAME_PATHS = ['#/games/class13', '#/games/guess', '#/games/wall'];
 
@@ -63,7 +64,21 @@
   function register(path, page) {
     const existing = _routes.findIndex(function (r) { return r.path === path; });
     const compiled = _compile(path);
-    const entry = { path, pattern: compiled.pattern, keys: compiled.keys, page };
+    const entry = { path, pattern: compiled.pattern, keys: compiled.keys, page, lazy: null };
+    if (existing >= 0) _routes[existing] = entry;
+    else _routes.push(entry);
+  }
+
+  /**
+   * Register a lazy-loaded route. Scripts/styles are injected once on first visit
+   * via App.loadScripts / App.loadStyles with a loading state and Retry on failure.
+   * @param {string} path
+   * @param {{ scripts: string[], styles?: string[], getPage: () => Object|null }} lazyConfig
+   */
+  function registerLazy(path, lazyConfig) {
+    const existing = _routes.findIndex(function (r) { return r.path === path; });
+    const compiled = _compile(path);
+    const entry = { path, pattern: compiled.pattern, keys: compiled.keys, page: null, lazy: lazyConfig };
     if (existing >= 0) _routes[existing] = entry;
     else _routes.push(entry);
   }
@@ -75,10 +90,66 @@
       if (m) {
         const params = { query };
         route.keys.forEach(function (k, i) { params[k] = decodeURIComponent(m[i + 1]); });
-        return { page: route.page, params, path: route.path, pathname };
+        return { page: route.page, lazy: route.lazy, params, path: route.path, pathname };
       }
     }
     return null;
+  }
+
+  function _renderLoadingState() {
+    if (!_root || !App.dom) return;
+    const { el } = App.dom;
+    const t = App.i18n ? App.i18n.t.bind(App.i18n) : function (k) { return k; };
+    _root.replaceChildren(
+      el('main', { className: 'page-container', role: 'main', id: 'main-content' }, [
+        el('div', { className: 'state-box', 'data-route-state': 'loading', role: 'status', 'aria-live': 'polite' }, [
+          el('p', { className: 'text-muted', text: t('misc.loading') }),
+        ]),
+      ])
+    );
+  }
+
+  function _renderLoadError(hash) {
+    if (!_root || !App.dom) return;
+    const { el } = App.dom;
+    const t = App.i18n ? App.i18n.t.bind(App.i18n) : function (k) { return k; };
+    _root.replaceChildren(
+      el('main', { className: 'page-container', role: 'main', id: 'main-content' }, [
+        el('div', { className: 'state-box', 'data-route-state': 'error', role: 'alert' }, [
+          el('p', { text: t('error.load') }),
+          el('div', { style: 'display: flex; flex-wrap: wrap; justify-content: center; gap: var(--space-2); margin-top: var(--space-3);' }, [
+            el('button', {
+              type: 'button',
+              className: 'btn btn-primary',
+              onClick: function () { navigate(hash); },
+            }, [el('span', { className: 'btn-label', text: t('btn.retry') })]),
+            el('a', { className: 'btn btn-secondary', href: '#/' }, [
+              el('span', { className: 'btn-label', text: t('nav.dashboard') }),
+            ]),
+          ]),
+        ]),
+      ])
+    );
+  }
+
+  function _mountMatched(page, h, pathname, params) {
+    _active = page;
+    _activePath = h;
+    _lastParams = params;
+    _inGame = GAME_PATHS.some(function (gp) { return pathname === gp; });
+    _updateNav(_inGame);
+    _updateNavActive(h);
+
+    if (App.bus) App.bus.emit('route:changed', { hash: h, pathname, params });
+
+    try {
+      _active.mount(_root, params);
+    } catch (e) {
+      console.error('[router] mount error on', h, e);
+      if (App.toast) {
+        App.toast.show(App.i18n ? App.i18n.t('error.generic') : '發生錯誤，請重試。');
+      }
+    }
   }
 
   function _unmount() {
@@ -173,6 +244,7 @@
     _bypassExitGuard = false;
 
     _unmount();
+    const token = ++_navToken;
 
     const match = _match(h);
     if (!match) {
@@ -184,35 +256,60 @@
         window.location.hash = '#/';
       }
       const dash = _match('#/');
-      if (dash) {
-        _active = dash.page;
-        _activePath = '#/';
-        _lastParams = dash.params;
-        _inGame = false;
-        _updateNav(false);
-        _updateNavActive('#/');
-        _active.mount(_root, dash.params);
+      if (dash && dash.page) {
+        _mountMatched(dash.page, '#/', '#/', dash.params);
       }
       return;
     }
 
-    _active = match.page;
-    _activePath = h;
-    _lastParams = match.params;
-    _inGame = GAME_PATHS.some(function (gp) { return match.pathname === gp; });
-    _updateNav(_inGame);
-    _updateNavActive(h);
+    if (match.lazy) {
+      const cfg = match.lazy;
+      const scripts = Array.isArray(cfg.scripts) ? cfg.scripts : [];
+      const styles = Array.isArray(cfg.styles) ? cfg.styles : [];
+      if (styles.length && App.loadStyles) App.loadStyles(styles);
 
-    if (App.bus) App.bus.emit('route:changed', { hash: h, pathname: match.pathname, params: match.params });
+      const allLoaded = App.loader
+        ? scripts.every(function (s) { return App.loader.isLoaded(s); })
+        : false;
+      const existingPage = typeof cfg.getPage === 'function' ? cfg.getPage() : null;
 
-    try {
-      _active.mount(_root, match.params);
-    } catch (e) {
-      console.error('[router] mount error on', h, e);
-      if (App.toast) {
-        App.toast.show(App.i18n ? App.i18n.t('error.generic') : '發生錯誤，請重試。');
+      if (allLoaded && existingPage) {
+        _mountMatched(existingPage, h, match.pathname, match.params);
+        return;
       }
+
+      _activePath = h;
+      _lastParams = match.params;
+      _inGame = false;
+      _updateNav(false);
+      _updateNavActive(h);
+      _renderLoadingState();
+
+      if (!App.loadScripts) {
+        _renderLoadError(h);
+        return;
+      }
+
+      App.loadScripts(scripts).then(
+        function () {
+          if (token !== _navToken) return;
+          const loadedPage = typeof cfg.getPage === 'function' ? cfg.getPage() : null;
+          if (!loadedPage) {
+            _renderLoadError(h);
+            return;
+          }
+          _mountMatched(loadedPage, h, match.pathname, match.params);
+        },
+        function (err) {
+          if (token !== _navToken) return;
+          console.error('[router] lazy load failed for', h, err);
+          _renderLoadError(h);
+        }
+      );
+      return;
     }
+
+    _mountMatched(match.page, h, match.pathname, match.params);
   }
 
   function refresh() {
@@ -276,5 +373,5 @@
     return { path: _activePath, inGame: _inGame, params: _lastParams };
   }
 
-  App.router = { register, navigate, refresh, init, go, current };
+  App.router = { register, registerLazy, navigate, refresh, init, go, current };
 })();

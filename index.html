@@ -15,7 +15,6 @@
   <link rel="stylesheet" href="./css/pages/app-shell.css">
   <link rel="stylesheet" href="./css/pages/cards.css">
   <link rel="stylesheet" href="./css/pages/review.css">
-  <link rel="stylesheet" href="./css/pages/styleguide.css">
 </head>
 <body>
   <header class="sr-only" id="app-header">
@@ -52,7 +51,7 @@
 
   <footer class="app-footer" id="app-footer"></footer>
 
-  <!-- Scripts — load order: data → utils → store → audio → i18n → bus → ui → router → pages → games → main -->
+  <!-- Core initial scripts only (non-core pages, games, AI & banks lazy-load via App.loadScripts) -->
   <script src="./data/english-2000-data.js"></script>
   <script src="./data/card-fixes.js"></script>
 
@@ -61,6 +60,7 @@
   <script src="./js/util/random.js"></script>
   <script src="./js/util/text.js"></script>
   <script src="./js/util/format.js"></script>
+  <script src="./js/util/loader.js"></script>
 
   <script src="./js/store/db.js"></script>
   <script src="./js/store/idb.js"></script>
@@ -83,27 +83,10 @@
   <script src="./js/ui/modal.js"></script>
   <script src="./js/ui/stamp.js"></script>
   <script src="./js/ui/flashcard.js"></script>
-  <script src="./js/ui/keyboard.js"></script>
-  <script src="./js/ui/card-form.js"></script>
   <script src="./js/ui/onboarding.js"></script>
 
   <script src="./js/router.js"></script>
-
-  <script src="./js/pages/styleguide.js"></script>
   <script src="./js/pages/dashboard.js"></script>
-  <script src="./js/pages/cards.js"></script>
-  <script src="./js/pages/card-detail.js"></script>
-  <script src="./js/pages/review.js"></script>
-  <script src="./js/pages/decks.js"></script>
-  <script src="./js/pages/games.js"></script>
-  <script src="./js/pages/stats.js"></script>
-  <script src="./js/pages/stamps.js"></script>
-  <script src="./js/pages/settings.js"></script>
-  <script src="./js/pages/ai-diagnostics.js"></script>
-
-  <script src="./js/games/class13/index.js"></script>
-  <script src="./js/games/guess/index.js"></script>
-  <script src="./js/games/wall/index.js"></script>
 
   <script src="./js/main.js"></script>
 </body>

@@ -7,7 +7,7 @@
   'use strict';
 
   const App = (window.App = window.App || {});
-  App.milestone = 'M4';
+  App.milestone = 'M5';
 
   // ─── 1. Database migrations ───────────────────────────────────────────────
   if (App.store && App.store.db) {
@@ -140,25 +140,64 @@
   window.addEventListener('offline', updateOnlineState);
   updateOnlineState();
 
-  // ─── 7. Register all routes ───────────────────────────────────────────────
+  // ─── 7. Register all routes (core eager, non-core lazy via App.loadScripts) ─
   if (App.router) {
-    const P = App.pages;
-    const G = App.games;
+    App.router.register('#/', App.pages.dashboard);
 
-    App.router.register('#/',              P.dashboard);
-    App.router.register('#/cards',         P.cards);
-    App.router.register('#/cards/:id',     P.cardDetail);
-    App.router.register('#/review',        P.review);
-    App.router.register('#/decks',         P.decks);
-    App.router.register('#/games',         P.gamesHub);
-    App.router.register('#/games/class13', G.class13);
-    App.router.register('#/games/guess',   G.guess);
-    App.router.register('#/games/wall',    G.wall);
-    App.router.register('#/stats',         P.stats);
-    App.router.register('#/stamps',        P.stamps);
-    App.router.register('#/settings',      P.settings);
-    App.router.register('#/settings/ai',   P.aiDiagnostics);
-    App.router.register('#/styleguide',    P.styleguide);
+    App.router.registerLazy('#/cards', {
+      scripts: ['js/ui/card-form.js', 'js/pages/cards.js'],
+      getPage: function () { return App.pages && App.pages.cards; },
+    });
+    App.router.registerLazy('#/cards/:id', {
+      scripts: ['js/ui/card-form.js', 'js/pages/card-detail.js'],
+      getPage: function () { return App.pages && App.pages.cardDetail; },
+    });
+    App.router.registerLazy('#/review', {
+      scripts: ['js/pages/review.js'],
+      getPage: function () { return App.pages && App.pages.review; },
+    });
+    App.router.registerLazy('#/decks', {
+      scripts: ['js/pages/decks.js'],
+      getPage: function () { return App.pages && App.pages.decks; },
+    });
+    App.router.registerLazy('#/games', {
+      scripts: ['js/pages/games.js'],
+      getPage: function () { return App.pages && App.pages.gamesHub; },
+    });
+    App.router.registerLazy('#/games/class13', {
+      scripts: ['js/ui/keyboard.js', 'js/games/engine.js', 'js/games/class13/index.js'],
+      getPage: function () { return App.games && App.games.class13; },
+    });
+    App.router.registerLazy('#/games/guess', {
+      scripts: ['js/games/engine.js', 'js/games/guess/index.js'],
+      getPage: function () { return App.games && App.games.guess; },
+    });
+    App.router.registerLazy('#/games/wall', {
+      styles: ['css/pages/wall.css'],
+      scripts: ['data/walls.js', 'js/games/engine.js', 'js/games/wall/validate.js', 'js/games/wall/index.js'],
+      getPage: function () { return App.games && App.games.wall; },
+    });
+    App.router.registerLazy('#/stats', {
+      scripts: ['js/pages/stats.js'],
+      getPage: function () { return App.pages && App.pages.stats; },
+    });
+    App.router.registerLazy('#/stamps', {
+      scripts: ['js/pages/stamps.js'],
+      getPage: function () { return App.pages && App.pages.stamps; },
+    });
+    App.router.registerLazy('#/settings', {
+      scripts: ['js/pages/settings.js'],
+      getPage: function () { return App.pages && App.pages.settings; },
+    });
+    App.router.registerLazy('#/settings/ai', {
+      scripts: ['js/pages/ai-diagnostics.js'],
+      getPage: function () { return App.pages && App.pages.aiDiagnostics; },
+    });
+    App.router.registerLazy('#/styleguide', {
+      styles: ['css/pages/styleguide.css'],
+      scripts: ['js/ui/keyboard.js', 'js/pages/styleguide.js'],
+      getPage: function () { return App.pages && App.pages.styleguide; },
+    });
   }
 
   // ─── 8. Global error handlers (never show a blank screen) ─────────────────

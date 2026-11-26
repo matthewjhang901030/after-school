@@ -15,6 +15,7 @@
     return [
       {
         href: '#/games/class13',
+        source: 'class13',
         index: '13',
         name: t('games.class13.name'),
         desc: t('games.class13.desc'),
@@ -22,6 +23,7 @@
       },
       {
         href: '#/games/guess',
+        source: 'guess',
         index: '猜',
         name: t('games.guess.name'),
         desc: t('games.guess.desc'),
@@ -29,6 +31,7 @@
       },
       {
         href: '#/games/wall',
+        source: 'wall',
         index: '牆',
         name: t('games.wall.name'),
         desc: t('games.wall.desc'),
@@ -42,6 +45,7 @@
     const { el } = App.dom;
     const t = App.i18n ? App.i18n.t.bind(App.i18n) : function (k) { return k; };
 
+    const attempts = App.store && App.store.attempts;
     const tocItems = _games().map(function (g) {
       const skillTabs = g.skills.map(function (s) {
         return el('span', {
@@ -49,6 +53,9 @@
           text: t('skill.' + s),
         });
       });
+
+      const bestList = attempts ? attempts.getPersonalBests(g.source, 1) : [];
+      const bestText = bestList.length ? `${t('games.personal_best')} ${bestList[0].score}` : '—';
 
       return el('li', {}, [
         el('a', {
@@ -62,7 +69,7 @@
             el('div', { className: 'toc-item-desc', text: g.desc }),
             el('div', { className: 'skill-tabs', style: 'margin-top: 6px;' }, skillTabs),
           ]),
-          el('span', { className: 'toc-item-best text-muted', text: '—' }),
+          el('span', { className: 'toc-item-best text-muted', text: bestText }),
         ]),
       ]);
     });
