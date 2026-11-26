@@ -307,4 +307,186 @@
       assert.equal(current().path, '#/');
     });
   });
+
+  // ═══════════════════════════════════════════════════════════════
+  // M3: Flashcards, Leitner, Decks, and TTS
+  // ═══════════════════════════════════════════════════════════════
+
+  suite('M3: App.store.cards builtin import, POS & CRUD', ({ test, assert }) => {
+    const cards = window.App.store.cards;
+
+    test('normalisePos maps canonical tags, a. -> adj., and noisy OCR -> null', () => {
+      assert.equal(cards.normalisePos('n.[C]'), 'n.');
+      assert.equal(cards.normalisePos('a.'), 'adj.');
+      assert.equal(cards.normalisePos('v.'), 'v.');
+      assert.equal(cards.normalisePos('n.[C]；v.'), 'n.');
+      assert.equal(cards.normalisePos(''), null);
+      assert.equal(cards.normalisePos('n.a.；20'), null);
+      assert.equal(cards.normalisePos('n.a.；0；Water freezes at zero degrees. 21 nineteen ('), null);
+    });
+
+    test('merges 2029 rows into 1924 unique cards and hides suspect_ocr_word 0722', () => {
+      const allWithHidden = cards.getAll({ includeHidden: true });
+      const active = cards.getAll({ includeHidden: false });
+      assert.equal(allWithHidden.length, 1924);
+      assert.equal(active.length, 1923);
+
+      const b0722 = cards.getById('b-0722');
+      assert.ok(b0722);
+      assert.equal(b0722.hidden, true);
+      assert.equal(b0722.excludeFromGames, true);
+
+      const baby = cards.getById('b-0001');
+      assert.equal(baby.word, 'baby');
+      assert.equal(baby.ipa, null);
+      assert.equal(baby.pos, 'n.');
+    });
+
+    test('validates card inputs and detects case-insensitive duplicates', () => {
+      const emptyCheck = cards.validate({ word: '', zh: '' });
+      assert.equal(emptyCheck.valid, false);
+      assert.equal(emptyCheck.errors.word, 'required');
+      assert.equal(emptyCheck.errors.zh, 'required');
+
+      const badChars = cards.validate({ word: 'hello123', zh: '你好' });
+      assert.equal(badChars.valid, false);
+      assert.equal(badChars.errors.word, 'invalid_chars');
+
+      const dup = cards.validate({ word: '  BABY ', zh: '寶寶' });
+      assert.equal(dup.valid, false);
+      assert.ok(dup.duplicate && dup.duplicate.id === 'b-0001');
+    });
+
+    test('adds, updates, deletes and restores user card cleanly', () => {
+      const created = cards.add({ word: 'marshmallow', zh: '棉花糖', pos: 'n.' });
+      assert.ok(created.id.startsWith('u-'));
+      assert.equal(cards.getById(created.id).word, 'marshmallow');
+
+      cards.update(created.id, { zh: '烤棉花糖' });
+      assert.equal(cards.getById(created.id).zh, '烤棉花糖');
+
+      const snap = cards.removeUserCard(created.id);
+      assert.equal(cards.getById(created.id), null);
+
+      cards.restoreUserCard(snap);
+      assert.equal(cards.getById(created.id).word, 'marshmallow');
+      cards.removeUserCard(created.id);
+    });
+
+    test('getDistractors excludes target, duplicates, and suspect_ocr_word', () => {
+      const target = cards.getById('b-0001');
+      const dist = cards.getDistractors(target, 3);
+      assert.equal(dist.length, 3);
+      dist.forEach((d) => {
+        assert.ok(d.id !== target.id);
+        assert.ok(d.id !== 'b-0722');
+        assert.ok(d.pos === 'n.');
+      });
+    });
+  });
+
+  suite('M3: App.store.leitner 5-box scheduling', ({ test, assert }) => {
+    const leitner = window.App.store.leitner;
+    const db = window.App.store.db;
+    const { addDays } = window.App.date;
+
+    test('promotes boxes 1->5 with spec intervals and demotes on unknown', () => {
+      const id = '__test_leitner_card';
+      const baseDay = '2026-12-01';
+
+      let p = leitner.rateCard(id, 'know', baseDay);
+      assert.equal(p.box, 2);
+      assert.equal(p.due, addDays(baseDay, 2));
+
+      p = leitner.rateCard(id, 'know', p.due);
+      assert.equal(p.box, 3);
+      assert.equal(p.due, addDays('2026-12-03', 4));
+
+      p = leitner.rateCard(id, 'fuzzy', p.due);
+      assert.equal(p.box, 3);
+      assert.equal(p.due, addDays('2026-12-07', 1));
+
+      p = leitner.rateCard(id, 'know', p.due);
+      assert.equal(p.box, 4);
+      assert.equal(p.due, addDays('2026-12-08', 7));
+
+      p = leitner.rateCard(id, 'know', p.due);
+      assert.equal(p.box, 5);
+      assert.equal(p.due, addDays('2026-12-15', 14));
+
+      // Max box stays 5
+      p = leitner.rateCard(id, 'know', p.due);
+      assert.equal(p.box, 5);
+
+      // Unknown drops to box 1 due +1d
+      p = leitner.rateCard(id, 'unknown', '2026-12-29');
+      assert.equal(p.box, 1);
+      assert.equal(p.due, '2026-12-30');
+      assert.equal(leitner.isDue(id, '2026-12-29'), false);
+      assert.equal(leitner.isDue(id, '2026-12-30'), true);
+
+      leitner.remove(id);
+    });
+
+    test('game wrong sends card to box 1 due TODAY while game correct does not promote', () => {
+      const id = '__test_leitner_game';
+      const today = '2026-12-10';
+      leitner.rateCard(id, 'know', today); // box 2, due 2026-12-12
+
+      let p = leitner.recordGameResult(id, 'wall', true, today);
+      assert.equal(p.box, 2); // did not promote
+
+      p = leitner.recordGameResult(id, 'class13', false, today);
+      assert.equal(p.box, 1);
+      assert.equal(p.due, today);
+      assert.equal(p.lastWrongIn, 'class13');
+      assert.equal(leitner.isDue(id, today), true);
+
+      leitner.remove(id);
+    });
+  });
+
+  suite('M3: App.store.decks & 3.8 UI edge cases', ({ test, assert }) => {
+    const decks = window.App.store.decks;
+    const cards = window.App.store.cards;
+
+    test('default deck resolves 1923 active builtin cards and cannot be deleted', () => {
+      const def = decks.getById(decks.DEFAULT_DECK_ID);
+      assert.ok(def);
+      assert.equal(decks.getCardIds(def.id).length, 1923);
+      assert.equal(decks.remove(def.id), null);
+    });
+
+    test('custom deck CRUD, 4-card game threshold, and restore undo', () => {
+      const d = decks.create({ name: 'Exam Prep', ringColor: 'grammar', cardIds: ['b-0001', 'b-0002'] });
+      assert.equal(decks.canPlayFourOptionGame(d.id), false);
+
+      decks.setCardDecks('b-0003', [d.id]);
+      decks.setCardDecks('b-0004', [d.id]);
+      assert.equal(decks.canPlayFourOptionGame(d.id), true);
+
+      const snap = decks.remove(d.id);
+      assert.equal(decks.getById(d.id), null);
+      // Cards remain intact after deck delete
+      assert.ok(cards.getById('b-0001'));
+
+      decks.restore(snap);
+      assert.ok(decks.getById(d.id));
+      decks.remove(d.id);
+    });
+
+    test('rapid flip clicks during 400ms lock are ignored and TTS stops safely', () => {
+      const fc = window.App.flashcard.create({ word: 'electroencephalography', ipa: null, zh: '腦電圖' });
+      const fontSize = parseInt(fc.root.querySelector('.flashcard-word').style.fontSize, 10);
+      assert.ok(fontSize >= 28);
+      fc.flip();
+      assert.equal(fc.isFlipped(), true);
+      fc.flip(); // rapid click within 400ms must be ignored
+      assert.equal(fc.isFlipped(), true);
+
+      const ttsStatus = window.App.audio.tts.status();
+      assert.equal(typeof ttsStatus.supported, 'boolean');
+      window.App.audio.tts.stop();
+    });
+  });
 })();

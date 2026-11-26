@@ -7,7 +7,7 @@
   'use strict';
 
   const App = (window.App = window.App || {});
-  App.milestone = 'M2';
+  App.milestone = 'M3';
 
   // ─── 1. Database migrations ───────────────────────────────────────────────
   if (App.store && App.store.db) {

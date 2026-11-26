@@ -80,3 +80,18 @@ Every choice not fully specified by `docs/spec/part01.md`–`part11.md`, or reso
 15. **i18n loading under `file://`**
     - Language catalogues (`js/i18n/zh-TW.js` and `js/i18n/en.js`) register onto `window.AS_I18N_ZH_TW` and `window.AS_I18N_EN` via classic `<script>` tags rather than `fetch()`ing JSON files, keeping `file://` double-click compatibility intact.
     - Switching language triggers `settings:changed`, re-renders both navigation chrome and the active page via `App.router.refresh()` while preserving route parameters.
+
+---
+
+## M3 — Flashcards, Leitner, TTS, and Decks
+
+16. **Default deck representation (`isDefaultAll`)**
+    - The default deck `"基礎 2000 字"` (`d-builtin-2000`) stores `isDefaultAll: true` rather than writing all 1,924 builtin card IDs into `as.v1.decks`. Active membership resolves dynamically to all non-hidden builtin cards, keeping `localStorage` small and automatically excluding hidden or `suspect_ocr_word` cards.
+
+17. **Leitner review vs. game scheduling**
+    - Review ratings follow Section 3.2: `know` (記住了) promotes `box + 1` (max 5) and schedules `+1/+2/+4/+7/+14` days; `fuzzy` (有點印象) keeps the same box due tomorrow (`+1` day); `unknown` (還不熟) resets to box 1 due tomorrow (`+1` day).
+    - Game outcomes (`recordGameResult`): wrong answers immediately drop to box 1 due **today** (`todayKey()`), while correct answers increment `seen`/`correct` without promoting the box.
+
+18. **Shared Add/Edit card modal helper & TTS fallback**
+    - Form rendering, validation, duplicate detection, and deck assignment live in `js/ui/card-form.js` so `#/cards` and `#/cards/:id` share one code path.
+    - `js/audio/tts.js` awaits `voiceschanged` with a `1500ms` timeout and never throws when `speechSynthesis` or an English voice is missing; speaker controls disable gracefully with tooltip `此裝置沒有英文語音`.
