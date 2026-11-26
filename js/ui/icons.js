@@ -47,6 +47,55 @@
       { tag: 'polyline', attrs: { points: '176,48 216,88 176,128' } },
       { tag: 'path', attrs: { d: 'M40,168a80,80,0,0,1,80-80h96' } },
     ],
+    house: [
+      { tag: 'path', attrs: { d: 'M40,112L128,40l88,72v96a8,8,0,0,1-8,8H48a8,8,0,0,1-8-8Z' } },
+      { tag: 'polyline', attrs: { points: '104,216 104,152 152,152 152,216' } },
+    ],
+    cards: [
+      { tag: 'rect', attrs: { x: '36', y: '68', width: '148', height: '148', rx: '12' } },
+      { tag: 'path', attrs: { d: 'M72,36H208a12,12,0,0,1,12,12V184' } },
+    ],
+    book: [
+      { tag: 'path', attrs: { d: 'M128,64a40,40,0,0,0-40-24H32V192H88a40,40,0,0,1,40,24' } },
+      { tag: 'path', attrs: { d: 'M128,64a40,40,0,0,1,40-24h56V192H168a40,40,0,0,0-40,24Z' } },
+    ],
+    game: [
+      { tag: 'rect', attrs: { x: '32', y: '72', width: '192', height: '112', rx: '36' } },
+      { tag: 'line', attrs: { x1: '80', y1: '108', x2: '80', y2: '148' } },
+      { tag: 'line', attrs: { x1: '60', y1: '128', x2: '100', y2: '128' } },
+      { tag: 'circle', attrs: { cx: '164', cy: '116', r: '8', fill: 'currentColor' } },
+      { tag: 'circle', attrs: { cx: '188', cy: '140', r: '8', fill: 'currentColor' } },
+    ],
+    gear: [
+      { tag: 'circle', attrs: { cx: '128', cy: '128', r: '32' } },
+      { tag: 'circle', attrs: { cx: '128', cy: '128', r: '72' } },
+      { tag: 'line', attrs: { x1: '128', y1: '28', x2: '128', y2: '56' } },
+      { tag: 'line', attrs: { x1: '128', y1: '200', x2: '128', y2: '228' } },
+      { tag: 'line', attrs: { x1: '28', y1: '128', x2: '56', y2: '128' } },
+      { tag: 'line', attrs: { x1: '200', y1: '128', x2: '228', y2: '128' } },
+      { tag: 'line', attrs: { x1: '57', y1: '57', x2: '77', y2: '77' } },
+      { tag: 'line', attrs: { x1: '179', y1: '179', x2: '199', y2: '199' } },
+      { tag: 'line', attrs: { x1: '199', y1: '57', x2: '179', y2: '77' } },
+      { tag: 'line', attrs: { x1: '77', y1: '179', x2: '57', y2: '199' } },
+    ],
+    'x-circle': [
+      { tag: 'circle', attrs: { cx: '128', cy: '128', r: '96' } },
+      { tag: 'line', attrs: { x1: '160', y1: '96', x2: '96', y2: '160' } },
+      { tag: 'line', attrs: { x1: '96', y1: '96', x2: '160', y2: '160' } },
+    ],
+    folder: [
+      { tag: 'path', attrs: { d: 'M32,80V64a8,8,0,0,1,8-8H96l24,24h96a8,8,0,0,1,8,8V192a8,8,0,0,1-8,8H40a8,8,0,0,1-8-8Z' } },
+    ],
+    chart: [
+      { tag: 'line', attrs: { x1: '40', y1: '208', x2: '216', y2: '208' } },
+      { tag: 'rect', attrs: { x: '60', y: '132', width: '32', height: '76' } },
+      { tag: 'rect', attrs: { x: '112', y: '88', width: '32', height: '120' } },
+      { tag: 'rect', attrs: { x: '164', y: '52', width: '32', height: '156' } },
+    ],
+    stamp: [
+      { tag: 'circle', attrs: { cx: '128', cy: '128', r: '88' } },
+      { tag: 'circle', attrs: { cx: '128', cy: '128', r: '56' } },
+    ],
   };
 
   /**

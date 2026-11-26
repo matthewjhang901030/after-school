@@ -4,26 +4,91 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>放學後 After School</title>
+  <meta name="description" content="放學後，才是真正的英文課。瀏覽器端英語學習網站。">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,700&family=JetBrains+Mono:wght@400;700&family=LXGW+WenKai+TC:wght@400;700&family=Manrope:wght@400;700&family=Noto+Sans+TC:wght@400;700&family=Noto+Sans:wght@400;700&display=swap">
   <link rel="stylesheet" href="./css/tokens.css">
   <link rel="stylesheet" href="./css/base.css">
   <link rel="stylesheet" href="./css/components.css">
+  <link rel="stylesheet" href="./css/pages/app-shell.css">
   <link rel="stylesheet" href="./css/pages/styleguide.css">
 </head>
 <body>
-  <div id="app"></div>
+  <a class="sr-only skip-link" href="#main-content" id="skip-link">跳至主內容</a>
 
+  <!-- Offline indicator -->
+  <div class="offline-indicator" role="status" aria-live="polite" id="offline-indicator"></div>
+
+  <!-- Screen-reader live region -->
+  <div id="announcer" aria-live="polite" aria-atomic="true"></div>
+
+  <!-- App shell -->
+  <div class="app-shell" id="app-shell">
+
+    <!-- Navigation (hidden during games) -->
+    <nav class="app-nav" id="app-nav" aria-label="主要導覽">
+      <div class="nav-brand">
+        <a class="nav-brand-name" id="nav-brand-name" href="#/">放學後</a>
+      </div>
+      <ul class="nav-items" id="nav-items" role="list"></ul>
+    </nav>
+
+    <!-- Game HUD (shown instead of nav during games) -->
+    <div class="game-hud" id="game-hud" role="toolbar" aria-label="遊戲控制" aria-hidden="true">
+      <button class="game-hud-exit" id="game-hud-exit" type="button"></button>
+      <div class="game-hud-score" id="game-hud-score" aria-live="polite"></div>
+    </div>
+
+    <!-- Page content root (pages mount <main id="main-content"> here) -->
+    <div class="app-content" id="app"></div>
+
+  </div>
+
+  <!-- Scripts — load order: data → utils → store → i18n → bus → ui → router → pages → games → main -->
   <script src="./data/english-2000-data.js"></script>
+
   <script src="./js/util/dom.js"></script>
+  <script src="./js/util/date.js"></script>
+  <script src="./js/util/random.js"></script>
+  <script src="./js/util/text.js"></script>
+  <script src="./js/util/format.js"></script>
+
+  <script src="./js/store/db.js"></script>
+  <script src="./js/store/idb.js"></script>
+  <script src="./js/store/settings.js"></script>
+
+  <script src="./js/i18n/zh-TW.js"></script>
+  <script src="./js/i18n/en.js"></script>
+  <script src="./js/i18n/index.js"></script>
+
+  <script src="./js/bus.js"></script>
+
   <script src="./js/ui/icons.js"></script>
   <script src="./js/ui/toast.js"></script>
   <script src="./js/ui/modal.js"></script>
   <script src="./js/ui/stamp.js"></script>
   <script src="./js/ui/flashcard.js"></script>
   <script src="./js/ui/keyboard.js"></script>
+
+  <script src="./js/router.js"></script>
+
   <script src="./js/pages/styleguide.js"></script>
+  <script src="./js/pages/dashboard.js"></script>
+  <script src="./js/pages/cards.js"></script>
+  <script src="./js/pages/card-detail.js"></script>
+  <script src="./js/pages/review.js"></script>
+  <script src="./js/pages/decks.js"></script>
+  <script src="./js/pages/games.js"></script>
+  <script src="./js/pages/stats.js"></script>
+  <script src="./js/pages/stamps.js"></script>
+  <script src="./js/pages/settings.js"></script>
+  <script src="./js/pages/ai-diagnostics.js"></script>
+
+  <script src="./js/games/class13/index.js"></script>
+  <script src="./js/games/guess/index.js"></script>
+  <script src="./js/games/wall/index.js"></script>
+
   <script src="./js/main.js"></script>
 </body>
 </html>

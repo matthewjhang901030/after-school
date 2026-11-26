@@ -133,11 +133,84 @@
     <div id="results"></div>
   </main>
 
+  <div id="test-router-root" hidden></div>
+
+  <!-- Data -->
   <script src="../data/english-2000-data.js"></script>
+
+  <!-- Utilities -->
   <script src="../js/util/dom.js"></script>
+  <script src="../js/util/date.js"></script>
+  <script src="../js/util/random.js"></script>
+  <script src="../js/util/text.js"></script>
+  <script src="../js/util/format.js"></script>
+
+  <!-- Store -->
+  <script src="../js/store/db.js"></script>
+  <script src="../js/store/idb.js"></script>
+  <script src="../js/store/settings.js"></script>
+
+  <!-- i18n -->
+  <script src="../js/i18n/zh-TW.js"></script>
+  <script src="../js/i18n/en.js"></script>
+  <script src="../js/i18n/index.js"></script>
+
+  <!-- Bus -->
+  <script src="../js/bus.js"></script>
+
+  <!-- UI components -->
   <script src="../js/ui/icons.js"></script>
+  <script src="../js/ui/toast.js"></script>
+  <script src="../js/ui/modal.js"></script>
+  <script src="../js/ui/stamp.js"></script>
   <script src="../js/ui/flashcard.js"></script>
   <script src="../js/ui/keyboard.js"></script>
+
+  <!-- Router -->
+  <script src="../js/router.js"></script>
+
+  <!-- Pages (stubs needed for router tests) -->
+  <script src="../js/pages/styleguide.js"></script>
+  <script src="../js/pages/dashboard.js"></script>
+  <script src="../js/pages/cards.js"></script>
+  <script src="../js/pages/card-detail.js"></script>
+  <script src="../js/pages/review.js"></script>
+  <script src="../js/pages/decks.js"></script>
+  <script src="../js/pages/games.js"></script>
+  <script src="../js/pages/stats.js"></script>
+  <script src="../js/pages/stamps.js"></script>
+  <script src="../js/pages/settings.js"></script>
+  <script src="../js/pages/ai-diagnostics.js"></script>
+
+  <!-- Games stubs -->
+  <script src="../js/games/class13/index.js"></script>
+  <script src="../js/games/guess/index.js"></script>
+  <script src="../js/games/wall/index.js"></script>
+  <script>
+    (function () {
+      'use strict';
+      const App = window.App;
+      const P = App.pages;
+      const G = App.games;
+      App.store.db.runMigrations();
+      App.i18n.init('zh-TW');
+      App.router.register('#/', P.dashboard);
+      App.router.register('#/cards', P.cards);
+      App.router.register('#/cards/:id', P.cardDetail);
+      App.router.register('#/review', P.review);
+      App.router.register('#/decks', P.decks);
+      App.router.register('#/games', P.gamesHub);
+      App.router.register('#/games/class13', G.class13);
+      App.router.register('#/games/guess', G.guess);
+      App.router.register('#/games/wall', G.wall);
+      App.router.register('#/stats', P.stats);
+      App.router.register('#/stamps', P.stamps);
+      App.router.register('#/settings', P.settings);
+      App.router.register('#/settings/ai', P.aiDiagnostics);
+      App.router.register('#/styleguide', P.styleguide);
+      App.router.init(document.getElementById('test-router-root'));
+    })();
+  </script>
   <script>
     (function () {
       'use strict';

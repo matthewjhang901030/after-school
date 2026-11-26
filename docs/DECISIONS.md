@@ -67,3 +67,16 @@ Every choice not fully specified by `docs/spec/part01.md`–`part11.md`, or reso
 13. **Ruled flashcard lines & icons without CSS gradients or external icon sprites**
     - Section 2.2 forbids CSS gradients everywhere. Flashcard ruled lines use a `1px` inline SVG data URI (`background-repeat: repeat`) alongside the `feTurbulence` paper grain overlay.
     - Single-weight Phosphor-style SVG icons are built cleanly via `js/ui/icons.js` (`document.createElementNS`) so icons work offline and under `file://` without CORS sprite failures.
+
+---
+
+## M2 — App Shell, Store, i18n, and Router
+
+14. **Mobile bottom bar vs. desktop sidebar navigation density**
+    - Below `1024px`, the fixed bottom tab bar displays 5 primary destinations (`#/`, `#/cards`, `#/review`, `#/games`, `#/settings`) so each tab maintains comfortable `≥ 48px` width and `14px` (`--text-small`) labels at `375px`.
+    - Secondary destinations (`#/decks`, `#/stats`, `#/stamps`) appear directly in the `220px` desktop sidebar (`≥ 1024px`) and remain reachable on mobile from Dashboard/Settings links.
+    - During game routes (`#/games/class13`, `#/games/guess`, `#/games/wall`), `body.is-in-game` hides `#app-nav` and reveals the `52px` `#game-hud` exit bar; leaving via HUD or Browser Back opens an accessible confirmation modal.
+
+15. **i18n loading under `file://`**
+    - Language catalogues (`js/i18n/zh-TW.js` and `js/i18n/en.js`) register onto `window.AS_I18N_ZH_TW` and `window.AS_I18N_EN` via classic `<script>` tags rather than `fetch()`ing JSON files, keeping `file://` double-click compatibility intact.
+    - Switching language triggers `settings:changed`, re-renders both navigation chrome and the active page via `App.router.refresh()` while preserving route parameters.

@@ -1,0 +1,402 @@
+/* ============================================================
+   App shell layout: nav (bottom bar / left sidebar) + main content
+   ============================================================ */
+
+/* ── Skip link (keyboard accessibility) ───────────────────── */
+.skip-link:focus {
+  position: fixed;
+  top: var(--space-2);
+  left: var(--space-2);
+  width: auto;
+  height: auto;
+  padding: var(--space-2) var(--space-4);
+  clip: auto;
+  overflow: visible;
+  z-index: var(--z-toast);
+  background: var(--ink);
+  color: var(--on-ink);
+  border-radius: var(--radius-md);
+  font: 700 var(--text-small) var(--font-sans);
+  text-decoration: none;
+}
+
+/* ── Layout container ─────────────────────────────────────── */
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+}
+
+/* Content area fills remaining space above/beside the nav */
+.app-content {
+  flex: 1 1 auto;
+  padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+  overflow-x: hidden;
+}
+
+/* ── Offline indicator ────────────────────────────────────── */
+.offline-indicator {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: var(--z-toast);
+  padding: var(--space-2) var(--space-4);
+  background: var(--ink);
+  color: var(--on-ink);
+  font: 700 var(--text-small) var(--font-sans);
+  text-align: center;
+  pointer-events: none;
+}
+
+body.is-offline .offline-indicator {
+  display: block;
+}
+
+/* ── Bottom tab bar (phone < 640px and tablet 640–1023px) ─── */
+.app-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: var(--z-nav);
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  display: flex;
+  height: calc(56px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  box-shadow: var(--shadow-1);
+}
+
+.nav-items {
+  display: flex;
+  flex: 1;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.nav-item {
+  flex: 1;
+  min-width: 0;
+}
+
+.nav-item--desktop {
+  display: none;
+}
+
+.nav-link {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 100%;
+  height: 56px;
+  padding: 0 var(--space-1);
+  color: var(--muted);
+  text-decoration: none;
+  font: 700 var(--text-small) var(--font-sans);
+  line-height: 1.1;
+  white-space: nowrap;
+  transition: color var(--dur-fast) var(--ease-out);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.nav-link .nav-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.nav-link.is-active {
+  color: var(--ink);
+}
+
+.nav-link.is-active .nav-icon {
+  background: var(--highlight);
+  color: var(--on-highlight);
+  border-radius: var(--radius-pill);
+  padding: 2px;
+}
+
+.nav-link:focus-visible {
+  outline: 3px solid var(--highlight);
+  outline-offset: -3px;
+  border-radius: var(--radius-sm);
+}
+
+/* Keep toasts above bottom bar on phone & tablet */
+@media (max-width: 1023px) {
+  body:not(.is-in-game) .toast-stack {
+    bottom: calc(68px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* ── Game HUD bar (shown instead of nav during games) ─────── */
+.game-hud {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: var(--z-nav);
+  height: 52px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  align-items: center;
+  padding: 0 var(--space-4);
+  gap: var(--space-4);
+}
+
+body.is-in-game .app-nav {
+  display: none;
+}
+
+body.is-in-game .game-hud {
+  display: flex;
+}
+
+body.is-in-game .app-content {
+  margin-left: 0;
+  padding-top: 52px;
+  padding-bottom: 0;
+}
+
+.game-hud-exit {
+  appearance: none;
+  background: none;
+  border: 1px solid transparent;
+  cursor: pointer;
+  color: var(--ink);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font: 700 var(--text-small) var(--font-sans);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  min-height: 44px;
+}
+
+.game-hud-exit:hover {
+  color: var(--wrong);
+  border-color: var(--line);
+}
+
+.game-hud-score {
+  margin-left: auto;
+  font: 700 var(--text-small) var(--font-mono);
+  color: var(--ink);
+}
+
+/* Mobile: hide brand, desktop: show it */
+.nav-brand { display: none; }
+
+/* ── Desktop sidebar (≥ 1024px) ───────────────────────────── */
+@media (min-width: 1024px) {
+  .app-shell {
+    flex-direction: row;
+  }
+
+  .app-nav {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    right: auto;
+    width: 220px;
+    height: 100dvh;
+    flex-direction: column;
+    border-top: none;
+    border-right: 1px solid var(--line);
+    box-shadow: var(--shadow-1);
+    padding-bottom: 0;
+  }
+
+  .app-content {
+    margin-left: 220px;
+    padding-bottom: 0;
+  }
+
+  .nav-brand {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-6) var(--space-6) var(--space-4);
+    border-bottom: 1px solid var(--line);
+    flex-shrink: 0;
+  }
+
+  .nav-brand-name {
+    font: 700 var(--text-h2) var(--font-display);
+    color: var(--ink);
+    text-decoration: none;
+  }
+
+  .nav-items {
+    flex-direction: column;
+    padding-top: var(--space-4);
+    overflow-y: auto;
+  }
+
+  .nav-item {
+    flex: 0 0 auto;
+  }
+
+  .nav-item--desktop {
+    display: block;
+  }
+
+  .nav-link {
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: var(--space-3);
+    height: 48px;
+    padding: 0 var(--space-4);
+    font-size: var(--text-small);
+    border-radius: var(--radius-md);
+    margin: 2px var(--space-2);
+    width: calc(100% - var(--space-4));
+  }
+
+  .nav-link.is-active {
+    background: var(--highlight);
+    color: var(--on-highlight);
+  }
+
+  .nav-link.is-active .nav-icon {
+    background: none;
+    border-radius: 0;
+    padding: 0;
+  }
+}
+
+/* ── Page inner layout ────────────────────────────────────── */
+.page-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-4);
+}
+
+@media (min-width: 640px) {
+  .page-container { padding: var(--space-8) var(--space-6); }
+}
+
+@media (min-width: 1024px) {
+  .page-container { padding: var(--space-8) var(--space-8); }
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+  flex-wrap: wrap;
+}
+
+.page-title {
+  font: 700 var(--text-h1) var(--font-display);
+  color: var(--ink);
+  text-wrap: balance;
+  margin: 0;
+}
+
+/* ── Bento layout (Dashboard) ─────────────────────────────── */
+.bento-grid {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 640px) {
+  .bento-grid { grid-template-columns: 1fr 1fr; }
+}
+
+@media (min-width: 1024px) {
+  .bento-grid { grid-template-columns: 2fr 1fr; }
+}
+
+.bento-block {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
+  box-shadow: var(--shadow-1);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.bento-block--large {
+  grid-column: 1 / -1;
+}
+
+@media (min-width: 1024px) {
+  .bento-block--large { grid-column: 1 / 2; }
+}
+
+/* ── Notebook TOC style (games hub) ───────────────────────── */
+.toc-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--line);
+}
+
+.toc-item {
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-6);
+  text-decoration: none;
+  color: var(--ink);
+  transition: background var(--dur-fast) var(--ease-out);
+  min-height: 72px;
+}
+
+.toc-item:hover {
+  background: var(--bg);
+}
+
+.toc-item:focus-visible {
+  outline: 3px solid var(--highlight);
+  outline-offset: -3px;
+}
+
+.toc-item-index {
+  font: 700 var(--text-small) var(--font-mono);
+  color: var(--muted);
+  min-width: 32px;
+}
+
+.toc-item-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.toc-item-name {
+  font: 700 var(--text-body) var(--font-display);
+  color: var(--ink);
+  margin-bottom: 2px;
+}
+
+.toc-item-desc {
+  font: 400 var(--text-small) var(--font-sans);
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.toc-item-best {
+  font: 700 var(--text-small) var(--font-mono);
+  color: var(--muted);
+  flex-shrink: 0;
+}

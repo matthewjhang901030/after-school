@@ -8,6 +8,7 @@
   let activeBackdrop = null;
   let previousFocus = null;
   let keyHandler = null;
+  let activeOnClose = null;
 
   function getFocusable(container) {
     return Array.from(
@@ -19,8 +20,11 @@
 
   /**
    * Close the currently open modal and return focus to the trigger.
+   * @param {boolean} [confirmed=false]
    */
-  function close() {
+  function close(confirmed = false) {
+    const onCloseCb = activeOnClose;
+    activeOnClose = null;
     if (keyHandler) {
       document.removeEventListener('keydown', keyHandler);
       keyHandler = null;
@@ -33,22 +37,26 @@
       previousFocus.focus();
       previousFocus = null;
     }
+    if (!confirmed && typeof onCloseCb === 'function') {
+      onCloseCb();
+    }
   }
 
   /**
    * Open a modal dialog.
-   * @param {{ title: string, body: string|Node, actions?: { label: string, variant?: string, onClick?: () => void }[] }} opts
+   * @param {{ title: string, body: string|Node, actions?: { label: string, variant?: string, onClick?: () => void }[], onClose?: () => void }} opts
    */
-  function open({ title, body, actions = [] }) {
-    close();
+  function open({ title, body, actions = [], onClose = null }) {
+    close(true);
     previousFocus = document.activeElement;
+    activeOnClose = typeof onClose === 'function' ? onClose : null;
 
     const { el } = App.dom;
     const closeBtn = el('button', {
       type: 'button',
       className: 'btn btn-ghost btn-icon',
       'aria-label': '關閉視窗',
-      onClick: close,
+      onClick: () => close(false),
     }, [App.icons.svg('close')]);
 
     const bodyNode = typeof body === 'string' ? el('p', { text: body }) : body;
@@ -58,7 +66,7 @@
         className: `btn ${act.variant ? `btn-${act.variant}` : 'btn-secondary'}`,
         onClick: () => {
           if (act.onClick) act.onClick();
-          close();
+          close(true);
         },
       }, [el('span', { className: 'btn-label', text: act.label })])
     );
@@ -80,14 +88,14 @@
     activeBackdrop = el('div', {
       className: 'modal-backdrop',
       onClick: (ev) => {
-        if (ev.target === activeBackdrop) close();
+        if (ev.target === activeBackdrop) close(false);
       },
     }, [dialog]);
 
     keyHandler = (ev) => {
       if (ev.key === 'Escape') {
         ev.preventDefault();
-        close();
+        close(false);
         return;
       }
       if (ev.key === 'Tab') {
