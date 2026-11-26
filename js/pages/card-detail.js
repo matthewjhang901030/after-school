@@ -59,14 +59,17 @@
       function renderPanel() {
         clear(panelBody);
         if (_activeTab === 'history') {
+          const attemptsStore = App.store.attempts;
+          const attempts = attemptsStore ? attemptsStore.getByCard(card.id) : [];
+          const firstDate = progress && (progress.firstSeenDay || progress.firstSeen || progress.lastSeen)
+            ? (progress.firstSeenDay || new Date(progress.firstSeen || progress.lastSeen).toLocaleDateString())
+            : '—';
+
           panelBody.appendChild(
             el('div', { className: 'detail-meta-grid' }, [
               el('div', { className: 'detail-meta-item' }, [
                 el('div', { className: 'detail-meta-label', text: _t('cards.hist.first_seen') }),
-                el('div', {
-                  className: 'detail-meta-value',
-                  text: progress && progress.lastSeen ? new Date(progress.lastSeen).toLocaleDateString() : '—',
-                }),
+                el('div', { className: 'detail-meta-value', text: firstDate }),
               ]),
               el('div', { className: 'detail-meta-item' }, [
                 el('div', { className: 'detail-meta-label', text: _t('cards.hist.accuracy') }),
@@ -83,7 +86,38 @@
           if (card.myExample) {
             panelBody.appendChild(el('div', { className: 'flashcard-tip', text: `${_t('cards.my_example')}：${card.myExample}` }));
           }
-          panelBody.appendChild(el('p', { className: 'text-muted text-small', text: _t('cards.hist.empty') }));
+          if (!attempts.length) {
+            panelBody.appendChild(el('p', { className: 'text-muted text-small', text: _t('cards.hist.empty') }));
+            return;
+          }
+
+          const sourceMap = {
+            card: 'review.source.card',
+            class13: 'timetable.class13',
+            guess: 'timetable.guess',
+            wall: 'games.wall.name',
+          };
+          const answerLabel = (ans) => {
+            if (ans === 'know') return _t('cards.know');
+            if (ans === 'fuzzy') return _t('review.fuzzy');
+            if (ans === 'unknown') return _t('cards.unknown');
+            return ans ? String(ans) : '';
+          };
+
+          const list = el('ul', { className: 'history-list', 'data-card-history': 'true' }, attempts.slice(0, 30).map((a) => {
+            const mark = a.correct ? '○' : '✗';
+            const markCls = 'history-mark ' + (a.correct ? 'history-mark--ok' : 'history-mark--no');
+            const detail = answerLabel(a.userAnswer);
+            return el('li', { className: 'history-item' }, [
+              el('div', { className: 'history-item-main' }, [
+                el('span', { className: markCls, text: mark }),
+                el('span', { className: 'card-badge', text: _t(sourceMap[a.source] || 'review.source.card') }),
+                detail ? el('span', { text: detail }) : null,
+              ]),
+              el('span', { className: 'history-item-time', text: a.dayKey }),
+            ]);
+          }));
+          panelBody.appendChild(list);
           return;
         }
 

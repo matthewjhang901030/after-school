@@ -19,7 +19,7 @@ Integrated browser-only English learning website for Taiwanese university studen
 
 ## Project Status
 
-- **Current milestone:** M3 (Design system, app shell, i18n zh-TW/en, storage + migrations, flashcards, Leitner 5-box schedule, TTS pronunciation, card CRUD + decks, and non-destructive course-data curation)
+- **Current milestone:** M4 (Design system, app shell, i18n zh-TW/en, storage + migrations, flashcards, Leitner 5-box review queue & Today's Review, unified attempt log with 5,000-entry daily compaction, completed sessions, card learning history timeline, 3-step first-visit onboarding, TTS pronunciation, card CRUD + decks, and non-destructive course-data curation)
 - **Specification:** `docs/spec/part01.md` – `docs/spec/part11.md`
 - **Data audit & curation log:** `docs/DATA.md`
 - **Design & implementation decisions:** `docs/DECISIONS.md`
@@ -29,7 +29,7 @@ Integrated browser-only English learning website for Taiwanese university studen
 - Chrome / Edge / Dia desktop (latest; Chrome 148+ for optional built-in Prompt API over `http(s)://`)
 - Safari iOS, Chrome Android
 
-## Known Limits (Through M3)
+## Known Limits (Through M4)
 
 - Builtin vocabulary comes from `data/english-2000-data.js` (unmodified) with non-destructive OCR and translation curation in `data/card-fixes.js`.
-- Today's Review (M4), the three mini-games (M5–M10), in-browser AI tutoring (M6–M11), Dashboard timetable (M9), and offline Service Worker (M12) are staged stubs until their respective milestones.
+- The three mini-games (M5–M10), in-browser AI tutoring (M6–M11), Dashboard timetable & charts (M9), and offline Service Worker (M12) are staged stubs until their respective milestones.

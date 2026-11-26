@@ -44,6 +44,44 @@
       }, [el('span', { className: 'btn-label', text: label })]);
     }
 
+    // ── Daily new words (5–30, Section 3.2) ────────────────────
+    const currentDailyNew = settings ? Number(settings.get('dailyNewWords')) || 10 : 10;
+    const dailyNewRow = [5, 10, 15, 20, 30].map(function (n) {
+      return el('button', {
+        type: 'button',
+        className: 'btn ' + (currentDailyNew === n ? 'btn-primary' : 'btn-secondary'),
+        onClick: function () {
+          if (settings) settings.update({ dailyNewWords: n });
+          mount(root);
+        },
+      }, [el('span', { className: 'btn-label', text: String(n) })]);
+    });
+
+    // ── Auto-play pronunciation ────────────────────────────────
+    const currentAutoPlay = Boolean(settings && settings.get('autoPlayPronunciation'));
+    const autoPlayBtn = el('button', {
+      type: 'button',
+      className: 'btn ' + (currentAutoPlay ? 'btn-primary' : 'btn-secondary'),
+      'aria-pressed': String(currentAutoPlay),
+      onClick: function () {
+        if (settings) settings.update({ autoPlayPronunciation: !currentAutoPlay });
+        mount(root);
+      },
+    }, [el('span', { className: 'btn-label', text: currentAutoPlay ? t('settings.on_label') : t('settings.off_label') })]);
+
+    // ── Speech rate ────────────────────────────────────────────
+    const currentRate = settings ? Number(settings.get('speechRate')) || 1.0 : 1.0;
+    const rateRow = [0.8, 1.0, 1.2].map(function (r) {
+      return el('button', {
+        type: 'button',
+        className: 'btn ' + (Math.abs(currentRate - r) < 0.05 ? 'btn-primary' : 'btn-secondary'),
+        onClick: function () {
+          if (settings) settings.update({ speechRate: r });
+          mount(root);
+        },
+      }, [el('span', { className: 'btn-label', text: r.toFixed(1) + '×' })]);
+    });
+
     // ── Periods per day ────────────────────────────────────────
     const currentPeriods = settings ? settings.get('periodsPerDay') : 3;
     const periodsRow = [2, 3, 4].map(function (n) {
@@ -78,11 +116,31 @@
         ]),
 
         el('section', { style: 'margin-bottom: var(--space-6);' }, [
+          el('h2', { className: 'text-muted text-small', style: 'margin-bottom: var(--space-3);', text: t('settings.daily_new') }),
+          el('div', { style: 'display: flex; flex-wrap: wrap; gap: var(--space-2);' }, dailyNewRow),
+        ]),
+
+        el('section', { style: 'margin-bottom: var(--space-6);' }, [
           el('h2', { className: 'text-muted text-small', style: 'margin-bottom: var(--space-3);', text: t('settings.periods') }),
           el('div', { style: 'display: flex; flex-wrap: wrap; gap: var(--space-2);' }, periodsRow),
         ]),
 
+        el('section', { style: 'margin-bottom: var(--space-6);' }, [
+          el('h2', { className: 'text-muted text-small', style: 'margin-bottom: var(--space-3);', text: t('settings.auto_play') }),
+          el('div', { style: 'display: flex; flex-wrap: wrap; gap: var(--space-2);' }, [autoPlayBtn]),
+        ]),
+
+        el('section', { style: 'margin-bottom: var(--space-6);' }, [
+          el('h2', { className: 'text-muted text-small', style: 'margin-bottom: var(--space-3);', text: t('settings.speech_rate') }),
+          el('div', { style: 'display: flex; flex-wrap: wrap; gap: var(--space-2);' }, rateRow),
+        ]),
+
         el('section', { style: 'display: flex; flex-wrap: wrap; gap: var(--space-2);' }, [
+          App.onboarding ? el('button', {
+            type: 'button',
+            className: 'btn btn-secondary',
+            onClick: function () { App.onboarding.open(); },
+          }, [el('span', { className: 'btn-label', text: t('settings.replay_onboarding') })]) : null,
           el('a', { className: 'btn btn-secondary', href: '#/decks' }, [
             el('span', { className: 'btn-label', text: t('nav.decks') }),
           ]),

@@ -85,6 +85,7 @@
   function rateCard(cardId, rating, todayOverride) {
     const map = _load();
     const today = todayOverride || App.date.todayKey();
+    const now = Date.now();
     const prev = map[cardId] || {
       cardId,
       box: 1,
@@ -92,6 +93,8 @@
       seen: 0,
       correct: 0,
       wrong: 0,
+      firstSeen: now,
+      firstSeenDay: today,
       lastSeen: 0,
       lastWrongIn: null,
     };
@@ -124,7 +127,9 @@
       seen: prev.seen + 1,
       correct: prev.correct + correctDelta,
       wrong: prev.wrong + wrongDelta,
-      lastSeen: Date.now(),
+      firstSeen: prev.firstSeen || prev.lastSeen || now,
+      firstSeenDay: prev.firstSeenDay || today,
+      lastSeen: now,
       lastWrongIn,
     };
 
@@ -147,6 +152,7 @@
   function recordGameResult(cardId, source, correct, todayOverride) {
     const map = _load();
     const today = todayOverride || App.date.todayKey();
+    const now = Date.now();
     const prev = map[cardId] || {
       cardId,
       box: 1,
@@ -154,6 +160,8 @@
       seen: 0,
       correct: 0,
       wrong: 0,
+      firstSeen: now,
+      firstSeenDay: today,
       lastSeen: 0,
       lastWrongIn: null,
     };
@@ -165,7 +173,9 @@
       seen: prev.seen + 1,
       correct: prev.correct + (correct ? 1 : 0),
       wrong: prev.wrong + (correct ? 0 : 1),
-      lastSeen: Date.now(),
+      firstSeen: prev.firstSeen || prev.lastSeen || now,
+      firstSeenDay: prev.firstSeenDay || today,
+      lastSeen: now,
       lastWrongIn: correct ? prev.lastWrongIn : source,
     };
 
@@ -218,6 +228,84 @@
   }
 
   /**
+   * Count how many cards were first studied on `dayKey` (local date).
+   * @param {string} [todayOverride]
+   * @returns {number}
+   */
+  function countNewLearnedToday(todayOverride) {
+    const today = todayOverride || App.date.todayKey();
+    const map = _load();
+    let count = 0;
+    for (const id of Object.keys(map)) {
+      if (map[id] && map[id].firstSeenDay === today) count++;
+    }
+    return count;
+  }
+
+  /**
+   * Build Today's Review queue (Section 3.3 B & 6.3):
+   * - Due cards first (due <= today, oldest due & lowest box first), max `maxCards` (default 20).
+   * - Topped up with unseen cards up to remaining daily new-word quota (`dailyNewWords`),
+   *   or up to `Math.min(maxCards, dailyNewWords)` unseen cards when `forceNewOnly` is true.
+   * @param {string[]} cardIds  Active candidate card IDs
+   * @param {{ today?: string, maxCards?: number, dailyNewWords?: number, forceNewOnly?: boolean }} [opts]
+   * @returns {{ due: string[], fresh: string[], queue: string[], totalDue: number, totalUnseen: number }}
+   */
+  function buildReviewQueue(cardIds, opts) {
+    const o = opts || {};
+    const today = o.today || App.date.todayKey();
+    const maxCards = Number.isFinite(o.maxCards) ? Math.max(1, Math.floor(o.maxCards)) : 20;
+    const defaultDaily = App.store.settings ? Number(App.store.settings.get('dailyNewWords')) || 10 : 10;
+    const dailyNewWords = Number.isFinite(o.dailyNewWords) ? Math.max(0, Math.floor(o.dailyNewWords)) : defaultDaily;
+    const forceNewOnly = Boolean(o.forceNewOnly);
+
+    const map = _load();
+    const dueRecords = [];
+    const unseenIds = [];
+
+    for (const id of cardIds) {
+      const rec = map[id];
+      if (!rec) {
+        unseenIds.push(id);
+      } else if (rec.due <= today) {
+        dueRecords.push(rec);
+      }
+    }
+
+    dueRecords.sort((a, b) => {
+      if (a.due !== b.due) return a.due.localeCompare(b.due);
+      if (a.box !== b.box) return a.box - b.box;
+      return (a.lastSeen || 0) - (b.lastSeen || 0);
+    });
+
+    if (forceNewOnly) {
+      const freshLimit = Math.min(maxCards, dailyNewWords || maxCards);
+      const fresh = unseenIds.slice(0, freshLimit);
+      return {
+        due: [],
+        fresh,
+        queue: fresh.slice(),
+        totalDue: dueRecords.length,
+        totalUnseen: unseenIds.length,
+      };
+    }
+
+    const selectedDue = dueRecords.slice(0, maxCards).map((r) => r.cardId);
+    const room = Math.max(0, maxCards - selectedDue.length);
+    const learnedToday = countNewLearnedToday(today);
+    const newRemaining = Math.max(0, dailyNewWords - learnedToday);
+    const selectedFresh = unseenIds.slice(0, Math.min(room, newRemaining));
+
+    return {
+      due: selectedDue,
+      fresh: selectedFresh,
+      queue: selectedDue.concat(selectedFresh),
+      totalDue: dueRecords.length,
+      totalUnseen: unseenIds.length,
+    };
+  }
+
+  /**
    * Invalidate cached map (call after import/reset/test changes).
    */
   function invalidate() {
@@ -233,6 +321,8 @@
     rateCard,
     recordGameResult,
     getBoxCounts,
+    countNewLearnedToday,
+    buildReviewQueue,
     remove,
     restore,
     invalidate,

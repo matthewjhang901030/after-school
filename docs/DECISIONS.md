@@ -110,3 +110,19 @@ Every choice not fully specified by `docs/spec/part01.md`–`part11.md`, or reso
     - i18n catalogues register on `window.App._i18n` instead of separate `window.AS_I18N_*` globals.
     - `App.router` strips and parses hash query strings (`#/...?...`) into `params.query` so M4–M8 handoffs (`#/cards?deck=...`, `#/games/class13?words=...`) work without hitting unknown-route redirects.
     - `App.store.db` switches to its in-memory fallback with banner on both `QuotaExceededError` and `SecurityError` (private mode / blocked storage).
+
+---
+
+## M4 — Review and Learning Record
+
+21. **Review queue composition & daily new-word quota**
+    - `App.store.leitner.buildReviewQueue()` caps each review session at `20` cards (Section 3.3 B): due cards (`due <= todayKey`, ordered by oldest `due`, lowest `box`, oldest `lastSeen`) fill first, then unseen cards top up remaining slots up to `dailyNewWords` (default `10`, configurable `5–30` in Settings) minus cards whose `firstSeenDay === todayKey`.
+    - When no cards are due and the daily new-word quota is filled, `#/review` renders the empty state (`今天的卡片都複習完了。`) with two actions: **學習新單字** (`forceNewOnly: true` starts an extra batch of unseen words) and **去玩遊戲** (`#/games`).
+
+22. **Unified attempt log compaction & session persistence (`js/store/attempts.js`)**
+    - Every review or game answer appends to `as.v1.attempts` with local `dayKey` (`App.date.todayKey()`) and emits `attempt:recorded`.
+    - Once `as.v1.attempts` exceeds `5,000` entries, oldest entries are compacted into `as.v1.daily` buckets keyed by `(dayKey, source, skill)` summing `{ total, correct }`, preserving long-term charts without exhausting `localStorage`.
+    - Completed sessions are written to `as.v1.sessions` only when a review or game finishes; navigating away mid-session never writes a session record.
+
+23. **First-visit 3-step onboarding presentation (`js/ui/onboarding.js`)**
+    - On first visit (`!settings.get('onboarded')`), Dashboard (`#/`) renders the 3-step onboarding card inline at the top (Step 1: pick daily new words; Step 2: flip a real builtin sample card; Step 3: done + jump to `#/review`, with a Skip option at every step) so it stays mobile-friendly at 375px and never steals focus or blocks route navigation. Learners can also replay it anytime via Settings (`App.onboarding.open()`).

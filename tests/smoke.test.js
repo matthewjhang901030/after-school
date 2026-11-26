@@ -695,4 +695,250 @@
       }
     });
   });
+
+  // ── M4: Review, Attempts, Compaction, History & Onboarding ───────────────
+  suite('M4 · Review, Attempt Log, Sessions & Onboarding', ({ test, assert }) => {
+    function resetM4Stores() {
+      window.App.store.db.remove('as.v1.progress');
+      window.App.store.db.remove('as.v1.attempts');
+      window.App.store.db.remove('as.v1.daily');
+      window.App.store.db.remove('as.v1.sessions');
+      window.App.store.leitner.invalidate();
+      window.App.store.attempts.invalidate();
+    }
+
+    test('reviewing 20 cards updates Leitner boxes and due dates across simulated date changes', () => {
+      const cards = window.App.store.cards.getAll({ includeHidden: false }).slice(0, 25);
+      const ids = cards.map((c) => c.id);
+      const leitner = window.App.store.leitner;
+      const attempts = window.App.store.attempts;
+      resetM4Stores();
+
+      try {
+        const day1 = '2026-12-01';
+        const day2 = '2026-12-02';
+        const day3 = '2026-12-03';
+        const day7 = '2026-12-07';
+
+        const q1 = leitner.buildReviewQueue(ids, { today: day1, maxCards: 20, dailyNewWords: 20 });
+        assert.equal(q1.queue.length, 20, 'Session queue capped at 20');
+        assert.equal(q1.due.length, 0);
+        assert.equal(q1.fresh.length, 20);
+
+        // Rate 10 know (-> box 2, due day3), 5 fuzzy (-> box 1, due day2), 5 unknown (-> box 1, due day2)
+        for (let i = 0; i < 20; i++) {
+          const cid = q1.queue[i];
+          const rating = i < 10 ? 'know' : (i < 15 ? 'fuzzy' : 'unknown');
+          const rec = leitner.rateCard(cid, rating, day1);
+          attempts.record({
+            source: 'card',
+            sessionId: 'ses-sim-1',
+            cardId: cid,
+            skill: 'vocab',
+            correct: rating !== 'unknown',
+            userAnswer: rating,
+            expected: cards[i].word,
+            dayKey: day1,
+            ms: 1200,
+          });
+          if (rating === 'know') {
+            assert.equal(rec.box, 2);
+            assert.equal(rec.due, day3);
+          } else {
+            assert.equal(rec.box, 1);
+            assert.equal(rec.due, day2);
+          }
+          assert.equal(rec.firstSeenDay, day1);
+        }
+
+        assert.equal(leitner.countNewLearnedToday(day1), 20);
+        assert.equal(attempts.getByDay(day1).length, 20);
+
+        // On day2: 10 box-1 cards are due; 10 box-2 cards are NOT due yet
+        const q2 = leitner.buildReviewQueue(ids, { today: day2, maxCards: 20, dailyNewWords: 2 });
+        assert.equal(q2.due.length, 10, '10 box-1 cards due on day2');
+        assert.equal(q2.fresh.length, 2, 'Daily new quota adds 2 unseen cards');
+        assert.equal(q2.queue.length, 12);
+        assert.equal(leitner.isDue(q1.queue[0], day2), false, 'Box-2 card not due on day2');
+        assert.equal(leitner.isDue(q1.queue[10], day2), true, 'Fuzzy box-1 card due on day2');
+        assert.equal(leitner.isDue(q1.queue[15], day2), true, 'Unknown box-1 card due on day2');
+
+        // On day3: all 20 reviewed cards are now due (10 overdue from day2 + 10 box-2 due day3)
+        assert.equal(leitner.isDue(q1.queue[0], day3), true, 'Box-2 card due on day3');
+        const promoted3 = leitner.rateCard(q1.queue[0], 'know', day3);
+        assert.equal(promoted3.box, 3);
+        assert.equal(promoted3.due, day7, 'Box 3 schedules +4 days');
+
+        // forceNewOnly returns unseen cards even when daily quota is exhausted
+        const qExtra = leitner.buildReviewQueue(ids, { today: day1, maxCards: 20, dailyNewWords: 5, forceNewOnly: true });
+        assert.equal(qExtra.fresh.length, 5);
+      } finally {
+        resetM4Stores();
+      }
+    });
+
+    test('attempt log emits attempt:recorded, compacts overflow into as.v1.daily, and tracks personal bests', () => {
+      const attempts = window.App.store.attempts;
+      resetM4Stores();
+      let busEvents = 0;
+      const onRecorded = () => { busEvents++; };
+      window.App.bus.on('attempt:recorded', onRecorded);
+
+      try {
+        assert.equal(attempts.MAX_ATTEMPTS, 5000);
+        for (let i = 0; i < 15; i++) {
+          attempts.record({
+            source: i % 2 === 0 ? 'card' : 'class13',
+            cardId: i < 5 ? 'b-0001' : 'b-0002',
+            skill: 'vocab',
+            correct: i % 3 !== 0,
+            userAnswer: i % 3 !== 0 ? 'know' : 'unknown',
+            dayKey: i < 10 ? '2026-12-01' : '2026-12-02',
+            ms: 500,
+          });
+        }
+        assert.equal(busEvents, 15, 'attempt:recorded emitted for every attempt');
+        assert.equal(attempts.getByCard('b-0001').length, 5);
+        assert.ok(attempts.getWeakCardIds(14, '2026-12-05').includes('b-0001'));
+
+        // Compact keeping 5 newest -> 10 oldest compacted into as.v1.daily
+        const compacted = attempts.compact(5);
+        assert.equal(compacted, 10);
+        assert.equal(attempts.getAll().length, 5);
+        const daily = attempts.getDailySummaries();
+        const compactedSum = daily.reduce((acc, d) => acc + d.total, 0);
+        assert.equal(compactedSum, 10, 'Compacted daily summaries preserve exact count');
+
+        const combined = attempts.getCombinedDailyTotals();
+        const grandTotal = combined.reduce((acc, d) => acc + d.total, 0);
+        assert.equal(grandTotal, 15, 'Combined daily totals equal 15 across daily + live attempts');
+
+        // Completed sessions & personal bests
+        attempts.recordSession({ source: 'card', startedAt: 1000, endedAt: 2000, score: 80, accuracy: 0.8 });
+        attempts.recordSession({ source: 'card', startedAt: 3000, endedAt: 4000, score: 150, accuracy: 0.95 });
+        const bests = attempts.getPersonalBests('card', 5);
+        assert.equal(bests.length, 2);
+        assert.equal(bests[0].score, 150);
+      } finally {
+        window.App.bus.off('attempt:recorded', onRecorded);
+        resetM4Stores();
+      }
+    });
+
+    test('review page handles Space/1/2/3 flow, end screen CTA, no-due state, and abandoned session cleanup', async () => {
+      const decks = window.App.store.decks;
+      const cards = window.App.store.cards.getAll({ includeHidden: false }).slice(0, 4);
+      const attempts = window.App.store.attempts;
+      resetM4Stores();
+
+      const tempDeck = decks.create({ name: 'M4 Temp Deck', cardIds: [cards[0].id, cards[1].id] });
+      const mountRoot = document.getElementById('test-router-root');
+
+      try {
+        window.App.pages.review.mount(mountRoot, { query: { deck: tempDeck.id } });
+        assert.ok(mountRoot.querySelector('[data-review-state="active"]'), 'Active review stage mounted');
+        const rateBtns1 = mountRoot.querySelectorAll('.rate-btn');
+        assert.equal(rateBtns1.length, 3);
+        assert.equal(rateBtns1[0].disabled, true, 'Rating buttons disabled before flip');
+
+        // Press Space to flip, then 3 (know)
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', code: 'Space' }));
+        assert.equal(rateBtns1[2].disabled, false, 'Rating buttons unlocked after flip');
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: '3', code: 'Digit3' }));
+        await new Promise((r) => setTimeout(r, 110));
+
+        // Second card: flip via Space, rate 1 (unknown)
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', code: 'Space' }));
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: '1', code: 'Digit1' }));
+        await new Promise((r) => setTimeout(r, 110));
+
+        // End screen rendered + completed session recorded
+        assert.ok(mountRoot.querySelector('[data-review-state="done"]'), 'End screen shown after final card');
+        assert.ok(mountRoot.querySelector('.stamp'), 'Commemorative stamp shown on end screen');
+        const ctaLink = mountRoot.querySelector('a[href^="#/games/class13?words="]');
+        assert.ok(ctaLink, 'Weak words CTA links to Class 13 with query params');
+        assert.ok(ctaLink.getAttribute('href').includes(encodeURIComponent(cards[1].id)));
+        assert.equal(attempts.getSessions('card').length, 1, 'Completed review saved 1 session');
+
+        // Re-mounting same deck (all reviewed today, none due, none unseen) shows empty state
+        window.App.pages.review.unmount();
+        window.App.pages.review.mount(mountRoot, { query: { deck: tempDeck.id } });
+        assert.ok(mountRoot.querySelector('[data-review-state="empty"]'), 'No-due empty state rendered');
+        assert.ok(mountRoot.querySelector('a[href="#/games"]'), 'Empty state offers Play a game action');
+
+        // Card detail Learning History tab displays the recorded attempt
+        window.App.pages.review.unmount();
+        window.App.pages.cardDetail.mount(mountRoot, { id: cards[1].id });
+        const tabs = mountRoot.querySelectorAll('.tab-btn');
+        tabs[1].click();
+        assert.ok(mountRoot.querySelector('[data-card-history="true"]'), 'Card history timeline renders recorded attempts');
+        assert.ok(mountRoot.textContent.includes('✗'), 'Wrong attempt shows ✗ mark in history');
+        window.App.pages.cardDetail.unmount();
+
+        // Abandoned session mid-review does NOT save a session and unmount removes keydown listener
+        const tempDeck2 = decks.create({ name: 'M4 Abandon Deck', cardIds: [cards[2].id, cards[3].id] });
+        try {
+          window.App.pages.review.mount(mountRoot, { query: { deck: tempDeck2.id } });
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', code: 'Space' }));
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: '3', code: 'Digit3' }));
+          await new Promise((r) => setTimeout(r, 110));
+          window.App.pages.review.unmount();
+          assert.equal(attempts.getSessions('card').length, 1, 'Abandoned review must not save a session');
+          // Dispatching keys after unmount should not throw or record extra attempts
+          const beforeCount = attempts.getAll().length;
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', code: 'Space' }));
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: '3', code: 'Digit3' }));
+          assert.equal(attempts.getAll().length, beforeCount, 'Unmounted review listener must not fire');
+        } finally {
+          decks.remove(tempDeck2.id);
+        }
+      } finally {
+        window.App.pages.review.unmount();
+        decks.remove(tempDeck.id);
+        resetM4Stores();
+      }
+    });
+
+    test('3-step first-visit onboarding updates dailyNewWords and marks settings.onboarded', () => {
+      const settings = window.App.store.settings;
+      const origOnboarded = settings.get('onboarded');
+      const origDaily = settings.get('dailyNewWords');
+      const mountRoot = document.getElementById('test-router-root');
+
+      try {
+        settings.update({ onboarded: false, dailyNewWords: 10 });
+        window.App.pages.dashboard.mount(mountRoot);
+        const panel = mountRoot.querySelector('[data-onboarding="true"]');
+        assert.ok(panel, 'Onboarding panel shown on Dashboard on first visit');
+
+        // Step 1: pick 15 words, click Next
+        const choice15 = Array.from(panel.querySelectorAll('.onboarding-choices button')).find((b) => b.textContent.includes('15'));
+        assert.ok(choice15, '15 words choice present');
+        choice15.click();
+        assert.equal(settings.get('dailyNewWords'), 15);
+
+        const next1 = panel.querySelector('.onboarding-foot .btn-primary');
+        next1.click();
+
+        // Step 2: flip sample flashcard, click Next
+        const sampleCardEl = panel.querySelector('.flashcard');
+        assert.ok(sampleCardEl, 'Step 2 renders interactive sample flashcard');
+        sampleCardEl.click();
+        assert.ok(sampleCardEl.classList.contains('is-flipped'), 'Sample card flips on tap');
+
+        const next2 = panel.querySelector('.onboarding-foot .btn-primary');
+        next2.click();
+
+        // Step 3: click Stay on home -> marks onboarded = true and removes panel
+        const stayBtn = panel.querySelector('.onboarding-foot .btn-secondary');
+        assert.ok(stayBtn, 'Step 3 completion actions rendered');
+        stayBtn.click();
+        assert.equal(settings.get('onboarded'), true, 'Completing onboarding sets onboarded = true');
+        assert.equal(mountRoot.querySelector('[data-onboarding="true"]'), null, 'Onboarding panel dismissed after completion');
+      } finally {
+        window.App.pages.dashboard.unmount();
+        settings.update({ onboarded: origOnboarded, dailyNewWords: origDaily });
+      }
+    });
+  });
 })();

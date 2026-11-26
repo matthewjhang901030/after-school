@@ -15,10 +15,22 @@
     const { el } = App.dom;
     const t = App.i18n ? App.i18n.t.bind(App.i18n) : function (k) { return k; };
 
+    const onboardingSlot = el('div');
+    if (App.onboarding && App.onboarding.shouldShow()) {
+      onboardingSlot.appendChild(
+        App.onboarding.createPanel({
+          onDone: () => {
+            onboardingSlot.replaceChildren();
+          },
+        })
+      );
+    }
+
     const page = el('main', { className: 'page-container', role: 'main', id: 'main-content' }, [
       el('div', { className: 'page-header' }, [
         el('h1', { className: 'page-title', text: t('dashboard.title') }),
       ]),
+      onboardingSlot,
       el('div', { className: 'bento-grid' }, [
         el('div', { className: 'bento-block bento-block--large' }, [
           el('p', { className: 'text-muted', text: t('empty.attempts') }),
