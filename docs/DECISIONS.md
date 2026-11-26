@@ -94,7 +94,8 @@ Every choice not fully specified by `docs/spec/part01.md`–`part11.md`, or reso
 
 18. **Shared Add/Edit card modal helper & TTS fallback**
     - Form rendering, validation, duplicate detection, and deck assignment live in `js/ui/card-form.js` so `#/cards` and `#/cards/:id` share one code path.
-    - `js/audio/tts.js` never disables speaker buttons based on `getVoices()` at initial render (buttons stay enabled whenever `window.speechSynthesis` exists). On click, if voices are already loaded it speaks synchronously (preserving Chromium user activation); if `getVoices()` is still empty (as in Dia under `file://`), it waits for `voiceschanged` up to `1.5s`, then speaks — showing a toast only if still unavailable. Prefers `localService === true` English voices with remote-failure fallback, avoids the Windows SAPI `cancel() → speak()` race, retains `_activeUtter` against GC, and supports `pitch` + `onEnd` for M10.
+    - `js/audio/tts.js` never disables speaker buttons based on `getVoices()` at initial render (buttons stay enabled whenever `window.speechSynthesis` exists). Uses `1.0` normal rate and `0.8` slow rate (avoiding distortion on online voices at `0.6`), prefers Edge `"Microsoft ... Online (Natural)"` `en-US` and Chrome `"Google US English"` before local `en-US` (with local fallback on error), waits `55ms` after `cancel()` before `speak()`, ignores rapid duplicate clicks while speaking, shows the `"此瀏覽器找不到英文語音，請改用 Edge 或 Chrome 開啟。"` toast at most once per page view, retains `_activeUtter` against GC, and supports `pitch` + `onEnd` for M10.
+    - **M10 AI Backlog:** Add optional **Kokoro in-browser TTS fallback** (e.g. `Kokoro-82M` via Transformers.js / CDN cache, Section 3.6) for browsers without native English voices.
 
 ---
 

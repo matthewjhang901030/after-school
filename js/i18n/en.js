@@ -214,7 +214,7 @@
     'cards.badge_hidden':       'Hidden',
     'cards.prev_page':          'Previous',
     'cards.next_page':          'Next',
-    'cards.no_english_voice':   'No English voice on this device',
+    'cards.no_english_voice':   'No English voice was found in this browser. Please open the site in Edge or Chrome.',
     'cards.speak_normal':       'Pronounce',
     'cards.speak_slow':         'Slow pronunciation',
     'cards.tap_flip':           'Tap or press Space to flip',

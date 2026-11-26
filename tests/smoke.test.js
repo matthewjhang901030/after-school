@@ -579,7 +579,7 @@
       decks.remove(d2.id);
     });
 
-    test('rapid flip clicks ignored and TTS prefers local English voices over remote', () => {
+    test('rapid flip clicks ignored and TTS prefers Edge Natural Online / Google US English over local', () => {
       const fc = window.App.flashcard.create({ word: 'electroencephalography', ipa: null, zh: '腦電圖' });
       const fontSize = parseInt(fc.root.querySelector('.flashcard-word').style.fontSize, 10);
       assert.ok(fontSize >= 28);
@@ -588,11 +588,17 @@
       fc.flip();
       assert.equal(fc.isFlipped(), true);
 
-      const picked = window.App.audio.tts._pickEnglishVoice([
-        { name: 'Google US English', lang: 'en-US', localService: false },
+      const pickedEdge = window.App.audio.tts._pickEnglishVoice([
         { name: 'Microsoft Zira Desktop', lang: 'en-US', localService: true },
+        { name: 'Microsoft Ava Online (Natural) - English (United States)', lang: 'en-US', localService: false },
       ]);
-      assert.equal(picked.name, 'Microsoft Zira Desktop');
+      assert.ok(pickedEdge.name.includes('Online (Natural)'));
+
+      const pickedChrome = window.App.audio.tts._pickEnglishVoice([
+        { name: 'Microsoft Zira Desktop', lang: 'en-US', localService: true },
+        { name: 'Google US English', lang: 'en-US', localService: false },
+      ]);
+      assert.equal(pickedChrome.name, 'Google US English');
 
       const ttsStatus = window.App.audio.tts.status();
       assert.equal(typeof ttsStatus.supported, 'boolean');
@@ -660,12 +666,28 @@
         assert.equal(res.ok, true);
         assert.equal(spoken.length, 1);
         assert.equal(spoken[0].text, 'library');
+        assert.equal(spoken[0].rate, 1);
         assert.equal(spoken[0].voice.name, 'Microsoft Zira Desktop');
 
+        // Slow mode uses 0.8 rate
+        await window.App.audio.tts.speak('library', { slow: true });
+        assert.equal(spoken[1].rate, 0.8);
+
+        // If voices never arrive, speak resolves ok:false and shows toast at most once per page view
         mockVoices = [];
-        const noVoiceRes = await window.App.audio.tts.speak('library', { timeoutMs: 60 });
-        assert.equal(noVoiceRes.ok, false);
-        assert.equal(noVoiceRes.reason, 'no_english_voice');
+        window.App.audio.tts.resetPageNotice();
+        let toastCount = 0;
+        const origToastShow = window.App.toast.show;
+        window.App.toast.show = function () { toastCount++; };
+        try {
+          const r1 = await window.App.audio.tts.speak('library', { timeoutMs: 40 });
+          const r2 = await window.App.audio.tts.speak('library', { timeoutMs: 40 });
+          assert.equal(r1.ok, false);
+          assert.equal(r2.ok, false);
+          assert.equal(toastCount, 1, 'No-voice toast must appear at most once per page view');
+        } finally {
+          window.App.toast.show = origToastShow;
+        }
       } finally {
         window.SpeechSynthesisUtterance = OrigUtter;
         if (origDesc) Object.defineProperty(window, 'speechSynthesis', origDesc);

@@ -214,7 +214,7 @@
     'cards.badge_hidden':       '已隱藏',
     'cards.prev_page':          '上一頁',
     'cards.next_page':          '下一頁',
-    'cards.no_english_voice':   '此裝置沒有英文語音',
+    'cards.no_english_voice':   '此瀏覽器找不到英文語音，請改用 Edge 或 Chrome 開啟。',
     'cards.speak_normal':       '發音',
     'cards.speak_slow':         '慢速發音',
     'cards.tap_flip':           '點擊或按空白鍵翻面',

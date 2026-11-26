@@ -115,6 +115,11 @@
 
   // ─── 5. React to runtime setting changes ──────────────────────────────────
   if (App.bus) {
+    App.bus.on('route:changed', function () {
+      if (App.audio && App.audio.tts && App.audio.tts.resetPageNotice) {
+        App.audio.tts.resetPageNotice();
+      }
+    });
     App.bus.on('settings:changed', function (data) {
       const changed = (data && data.changed) || {};
       if (changed.language) {
