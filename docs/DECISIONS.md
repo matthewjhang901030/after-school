@@ -15,7 +15,10 @@ Every choice not fully specified by `docs/spec/part01.md`–`part11.md`, or reso
 2. **AI model hosting and Blob URL Web Worker under `file://`**
    - AI model weights are **never bundled** inside the project folder. On first use (only after user action, with a visible MB progress bar), models are downloaded from Hugging Face / jsDelivr CDN and cached by the browser.
    - Under `file://`, `new Worker('js/ai/worker.js')` is blocked by origin rules, and `new Worker(blobUrl, { type: 'module' })` also fails in Edge/Chromium (`onerror`).
-   - Verified solution: create a **classic Blob URL Worker** (`new Worker(blobUrl)` without `{ type: 'module' }`) and dynamically `await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.5.1/dist/transformers.min.js')` inside the worker. Verified in Edge 158 under `file://` that Cache Storage (`transformers-cache`) persists across closing and reopening the browser, allowing subsequent runs to load offline with zero re-download.
+   - Verified solution: create a **classic Blob URL Worker** (`new Worker(blobUrl)` without `{ type: 'module' }`) and dynamically `await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.5.1/dist/transformers.min.js')` inside the worker.
+   - **Browser verification (`file://`)**:
+     - **Edge 158.0.4370.33**: `index.html` OK, `tests/test.html` 4/4 passed; cold download of `Xenova/all-MiniLM-L6-v2` (`q8`) completed in `6991 ms` (`22.59 MB` across 4 files in `transformers-cache`); after closing and reopening via `file://`, warm load ran in `837 ms` with 0 Hugging Face requests (`fromDiskCache: true`, `0` network bytes).
+     - **Dia browser (Chromium-based, owner's machine)**: `index.html` OK, `tests/test.html` 4/4 passed; Cache API, IndexedDB, WebGPU, Gemini Nano, and Blob Worker all available; cold model download completed in `11391 ms`; after closing and reopening the browser via `file://`, cache persisted with 4 files (`22.59 MB`).
 
 3. **Loading `data/english-2000-data.js` (`window.ENGLISH_2000_DATA`)**
    - Keep `data/english-2000-data.js` completely unmodified and load it via `<script src="./data/english-2000-data.js"></script>` before app scripts.
@@ -52,3 +55,15 @@ Every choice not fully specified by `docs/spec/part01.md`–`part11.md`, or reso
     - Test files are placed flat at `tests/*.test.js` alongside `tests/test.html` and `tests/guess-eval.json` (no nested `tests/tests/` folder).
     - `README.md` sits at the repository root (matching Appendix B and standard GitHub Pages repos) rather than inside `docs/`.
     - Empty directories from Section 7.2 contain `.gitkeep` placeholders during M0 so Git tracks the full structure; each `.gitkeep` will be removed when its directory receives real source files.
+
+---
+
+## M1 — Design System
+
+12. **Contrast-safe foreground tokens (`--on-ink`, `--on-highlight`, `--on-wrong`, `--on-tab`)**
+    - Computing WCAG 2.1 contrast ratios on the spec palette showed that `#FFFDF8` on `--tab-dialogue` (`#C46A4A`) yields `3.75:1` (below `4.5:1`), whereas dark ink `#1F1A17` (`--on-tab`) yields `4.52:1` on `--tab-dialogue`, `5.57:1` on `--tab-grammar`, and `7.12:1` on `--tab-vocab`.
+    - Similarly, filled danger buttons (`--wrong`) pair with `#FFFDF8` (`5.05:1`) in light mode and `#1B1916` (`6.41:1`) in dark mode (`#F07A64`).
+
+13. **Ruled flashcard lines & icons without CSS gradients or external icon sprites**
+    - Section 2.2 forbids CSS gradients everywhere. Flashcard ruled lines use a `1px` inline SVG data URI (`background-repeat: repeat`) alongside the `feTurbulence` paper grain overlay.
+    - Single-weight Phosphor-style SVG icons are built cleanly via `js/ui/icons.js` (`document.createElementNS`) so icons work offline and under `file://` without CORS sprite failures.

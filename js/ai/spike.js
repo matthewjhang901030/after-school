@@ -39,7 +39,7 @@
     envGrid.appendChild(item);
   }
 
-  function renderEnvDiagnostics() {
+  async function renderEnvDiagnostics() {
     envGrid.replaceChildren();
     addEnvItem('protocol', window.location.protocol);
     addEnvItem('origin', window.location.origin);
@@ -47,7 +47,16 @@
     addEnvItem('Cache API', typeof window.caches !== 'undefined' ? 'available' : 'unavailable');
     addEnvItem('IndexedDB', typeof window.indexedDB !== 'undefined' ? 'available' : 'unavailable');
     addEnvItem('WebGPU', navigator.gpu ? 'available' : 'unavailable');
-    addEnvItem('Gemini Nano', typeof window.LanguageModel !== 'undefined' ? 'available' : 'unavailable');
+
+    let nanoStatus = 'unavailable (API absent)';
+    if (typeof window.LanguageModel !== 'undefined' && typeof window.LanguageModel.availability === 'function') {
+      try {
+        nanoStatus = await window.LanguageModel.availability();
+      } catch (err) {
+        nanoStatus = `error (${err && err.message ? err.message : String(err)})`;
+      }
+    }
+    addEnvItem('Gemini Nano', nanoStatus);
     addEnvItem('Blob Worker', typeof window.Worker !== 'undefined' ? 'available' : 'unavailable');
   }
 

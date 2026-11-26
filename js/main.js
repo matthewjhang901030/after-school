@@ -1,33 +1,15 @@
 /**
- * Application entry point (M0 bootstrap, file:// and http(s):// compatible).
- * Uses classic script loading via window.App so double-clicking index.html works without CORS issues.
+ * Application entry point (M1: design system + #/styleguide dev route, file:// compatible).
  */
 (function () {
   'use strict';
 
+  const App = (window.App = window.App || {});
   const root = document.getElementById('app');
+  let activePage = null;
 
-  /**
-   * Create a DOM element with optional className, textContent, and href.
-   * Never uses innerHTML.
-   * @param {string} tag
-   * @param {{ className?: string, text?: string, href?: string }} [opts]
-   * @param {Node[]} [children]
-   * @returns {HTMLElement}
-   */
-  function createEl(tag, opts = {}, children = []) {
-    const node = document.createElement(tag);
-    if (opts.className) node.className = opts.className;
-    if (opts.text !== undefined) node.textContent = opts.text;
-    if (opts.href) node.setAttribute('href', opts.href);
-    for (const child of children) {
-      if (child) node.appendChild(child);
-    }
-    return node;
-  }
-
-  function renderM0Status() {
-    if (!root) return;
+  function renderHome() {
+    const { el } = App.dom;
     const data = window.ENGLISH_2000_DATA;
     const hasData = Boolean(data && Array.isArray(data.words));
     const rowCount = hasData ? data.words.length : 0;
@@ -35,65 +17,81 @@
     const chapterCount = hasData && Array.isArray(data.chapters) ? data.chapters.length : 0;
     const modeLabel = window.location.protocol === 'file:' ? '本機檔案 (file://)' : `伺服器 (${window.location.protocol})`;
 
-    const badge = createEl('span', {
-      className: 'badge',
-      text: hasData ? 'M0 就緒' : '資料未載入',
-    });
-
-    const summary = createEl('span', {
-      text: hasData
-        ? `已載入 ${rowCount} 筆課綱單字列（不重複字彙 ${uniqueCount} 個），${chapterCount} 個章節 · ${modeLabel}。`
-        : '無法讀取 data/english-2000-data.js，請確認檔案路徑完整。',
-    });
-
-    const statusRow = createEl('div', { className: 'status-row' }, [badge, summary]);
-
-    const actions = createEl('div', { className: 'actions' }, [
-      createEl('a', {
-        className: 'btn',
-        text: '開啟測試執行器 (tests/test.html)',
-        href: './tests/test.html',
-      }),
-      createEl('a', {
-        className: 'btn secondary',
-        text: 'AI 模型測試 (tests/ai-spike.html)',
-        href: './tests/ai-spike.html',
-      }),
-      createEl('a', {
-        className: 'btn secondary',
-        text: '檢視資料盤點 (docs/DATA.md)',
-        href: './docs/DATA.md',
-      }),
+    const home = el('main', { className: 'app-container' }, [
+      el('section', { className: 'surface-card', style: 'max-width: 720px;' }, [
+        el('div', { className: 'skill-tabs', style: 'margin-bottom: 12px;' }, [
+          el('span', { className: 'skill-tab skill-tab--vocab', text: '單字' }),
+          el('span', { className: 'skill-tab skill-tab--grammar', text: '文法' }),
+          el('span', { className: 'skill-tab skill-tab--dialogue', text: '對話' }),
+        ]),
+        el('h1', { text: '放學後 After School' }),
+        el('p', {
+          className: 'text-muted',
+          text: 'Milestone 1：文具紙張設計系統、雙主題 tokens 與全元件樣式表已就緒。',
+        }),
+        el('div', {
+          style: 'display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:12px 16px;border:1px solid var(--line);border-radius:12px;background:var(--bg);margin-bottom:16px;',
+        }, [
+          el('span', {
+            className: 'chip is-selected',
+            text: hasData ? 'M1 就緒' : '資料未載入',
+          }),
+          el('span', {
+            text: hasData
+              ? `已載入 ${rowCount} 筆課綱單字列（不重複字彙 ${uniqueCount} 個），${chapterCount} 個章節 · ${modeLabel}。`
+              : '無法讀取 data/english-2000-data.js，請確認檔案路徑完整。',
+          }),
+        ]),
+        el('div', { className: 'sg-row' }, [
+          el('a', { className: 'btn btn-primary', href: '#/styleguide' }, [
+            el('span', { className: 'btn-label', text: '開啟設計系統樣式表 (#/styleguide)' }),
+          ]),
+          el('a', { className: 'btn btn-secondary', href: './tests/test.html' }, [
+            el('span', { className: 'btn-label', text: '執行測試 (tests/test.html)' }),
+          ]),
+          el('a', { className: 'btn btn-secondary', href: './tests/ai-spike.html' }, [
+            el('span', { className: 'btn-label', text: 'AI 模型測試 (tests/ai-spike.html)' }),
+          ]),
+        ]),
+      ]),
     ]);
 
-    const card = createEl('section', { className: 'card' }, [
-      createEl('h1', { text: '放學後 After School' }),
-      createEl('p', {
-        className: 'muted',
-        text: 'Milestone 0：專案骨架、file:// 支援、課程資料盤點與測試執行器已就緒。',
-      }),
-      statusRow,
-      actions,
-    ]);
-
-    root.replaceChildren(card);
-
-    window.App = Object.assign(window.App || {}, {
-      milestone: 'M0',
-      protocol: window.location.protocol,
-      dataLoaded: hasData,
-      wordRows: rowCount,
-      uniqueWords: uniqueCount,
-    });
+    root.replaceChildren(home);
   }
 
-  window.addEventListener('error', function (event) {
+  function route() {
+    if (!root) return;
+    if (activePage && typeof activePage.unmount === 'function') {
+      activePage.unmount();
+      activePage = null;
+    }
+
+    const hash = window.location.hash || '#/';
+    if (hash === '#/styleguide' && App.pages && App.pages.styleguide) {
+      activePage = App.pages.styleguide;
+      activePage.mount(root);
+      return;
+    }
+
+    renderHome();
+  }
+
+  window.addEventListener('hashchange', route);
+  window.addEventListener('error', (event) => {
     console.error('Unhandled error:', event.error || event.message);
   });
-
-  window.addEventListener('unhandledrejection', function (event) {
+  window.addEventListener('unhandledrejection', (event) => {
     console.error('Unhandled rejection:', event.reason);
   });
 
-  renderM0Status();
+  const data = window.ENGLISH_2000_DATA;
+  Object.assign(App, {
+    milestone: 'M1',
+    protocol: window.location.protocol,
+    dataLoaded: Boolean(data && Array.isArray(data.words)),
+    wordRows: data && Array.isArray(data.words) ? data.words.length : 0,
+    uniqueWords: data && data.stats ? data.stats.uniqueWords : 0,
+  });
+
+  route();
 })();

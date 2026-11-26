@@ -1,0 +1,127 @@
+:root {
+  /* Palette — Afternoon (light, default) */
+  --bg: #F6F1E7;
+  --surface: #FFFDF8;
+  --ink: #1F1A17;
+  --muted: #6B625A;
+  --line: #E4DCCD;
+  --line-strong: #C9BFAE;
+  --highlight: #F5D547;
+  --correct: #2F7A4B;
+  --wrong: #C2412D;
+
+  /* Contrast-safe foreground pairings */
+  --on-ink: #FFFDF8;
+  --on-highlight: #1F1A17;
+  --on-wrong: #FFFDF8;
+  --on-tab: #1F1A17;
+  --paper-rule: rgba(107, 98, 90, 0.16);
+  --backdrop: rgba(31, 26, 23, 0.45);
+
+  /* Skill index tabs (small labels only, never large fills) */
+  --tab-vocab: #C9A227;
+  --tab-grammar: #7C9A7E;
+  --tab-dialogue: #C46A4A;
+
+  /* Typography */
+  --font-display: "Fraunces", Georgia, serif;
+  --font-sans: "Manrope", "Noto Sans TC", system-ui, "Microsoft JhengHei", "PingFang TC", sans-serif;
+  --font-zh-card: "LXGW WenKai TC", "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-ipa: "Noto Sans", system-ui, sans-serif;
+
+  /* Type scale */
+  --text-display: clamp(40px, 5vw, 56px);
+  --text-h1: clamp(24px, 3vw, 32px);
+  --text-h2: clamp(20px, 2.4vw, 24px);
+  --text-body: 16px;
+  --text-small: 14px;
+
+  /* Spacing scale (multiples of 4) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* Radii (concentric: outer 20px - 8px padding = 12px inner) */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+  --radius-pill: 999px;
+
+  /* Shadows (one top light source; replaced by 1px border in dark mode) */
+  --shadow-1: 0 2px 6px rgba(31, 26, 23, 0.06), 0 1px 2px rgba(31, 26, 23, 0.04);
+  --shadow-2: 0 8px 20px rgba(31, 26, 23, 0.08), 0 2px 6px rgba(31, 26, 23, 0.05);
+  --shadow-3: 0 16px 36px rgba(31, 26, 23, 0.14), 0 4px 12px rgba(31, 26, 23, 0.06);
+
+  /* Motion */
+  --dur-fast: 150ms;
+  --dur-med: 250ms;
+  --dur-slow: 400ms;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* Layers (none above 100) */
+  --z-base: 1;
+  --z-nav: 20;
+  --z-sticky: 30;
+  --z-modal: 60;
+  --z-toast: 80;
+
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --bg: #1B1916;
+  --surface: #25221E;
+  --ink: #EDE6D9;
+  --muted: #A39A8E;
+  --line: #3A352F;
+  --line-strong: #524B42;
+  --highlight: #F5D547;
+  --correct: #6CC08A;
+  --wrong: #F07A64;
+
+  --on-ink: #25221E;
+  --on-highlight: #1F1A17;
+  --on-wrong: #1B1916;
+  --on-tab: #1F1A17;
+  --paper-rule: rgba(163, 154, 142, 0.16);
+  --backdrop: rgba(12, 10, 9, 0.72);
+
+  --shadow-1: 0 0 0 1px var(--line-strong);
+  --shadow-2: 0 0 0 1px var(--line-strong);
+  --shadow-3: 0 0 0 1px var(--line-strong);
+
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #1B1916;
+    --surface: #25221E;
+    --ink: #EDE6D9;
+    --muted: #A39A8E;
+    --line: #3A352F;
+    --line-strong: #524B42;
+    --highlight: #F5D547;
+    --correct: #6CC08A;
+    --wrong: #F07A64;
+
+    --on-ink: #25221E;
+    --on-highlight: #1F1A17;
+    --on-wrong: #1B1916;
+    --on-tab: #1F1A17;
+    --paper-rule: rgba(163, 154, 142, 0.16);
+    --backdrop: rgba(12, 10, 9, 0.72);
+
+    --shadow-1: 0 0 0 1px var(--line-strong);
+    --shadow-2: 0 0 0 1px var(--line-strong);
+    --shadow-3: 0 0 0 1px var(--line-strong);
+
+    color-scheme: dark;
+  }
+}
