@@ -1,11 +1,11 @@
 /**
  * Tier 2 AI Backend: Qwen 2.5 0.5B Instruct via Transformers.js inside a classic Blob URL Worker.
  * - 100% file:// and http(s):// compatible (classic Blob Worker + jsDelivr dynamic import).
- * - Uses onnx-community/Qwen2.5-0.5B-Instruct:
- *     WebGPU -> dtype 'q4f16' (~467 MB total incl. tokenizer)
- *     WASM   -> dtype 'q8'    (~495 MB total incl. tokenizer)
+ * - WebGPU first: checks navigator.gpu + requestAdapter() inside the worker and uses
+ *   device: 'webgpu' (dtype 'q4f16', ~467 MB), falling back to 'wasm' only if WebGPU fails.
  * - Reports exact download progress in MB, streams tokens live via TextStreamer,
- *   caches in Cache Storage ("transformers-cache"), calls navigator.storage.persist(),
+ *   measures first-token latency (TTFT) + full answer time, supports background warm-up
+ *   when already cached (never auto-downloads), caches in Cache Storage ("transformers-cache"),
  *   and supports immediate cancellation via AbortController.
  * @namespace App.ai.qwen
  */
@@ -23,16 +23,21 @@
   let _worker = null;
   let _reqSeq = 0;
   let _initPromise = null;
+  let _warmupPromise = null;
   const _pending = new Map();
 
   const _metrics = {
     modelId: MODEL_ID,
-    device: null,
-    dtype: null,
+    device: null,          // 'webgpu' | 'wasm' | null
+    dtype: null,           // 'q4f16' | 'q4' | null
+    webgpuError: null,     // non-null if WebGPU failed and fell back to WASM
     approxMB: APPROX_MB_Q4F16,
     loadedBytes: 0,
     totalBytes: 0,
     loadMs: null,
+    warmupMs: null,
+    warmedUp: false,
+    lastFirstTokenMs: null,
     lastAnswerMs: null,
     tokensPerSec: null,
     hadCacheBefore: false,
@@ -54,9 +59,11 @@
       let TextStreamerCls = null;
       let activeDevice = null;
       let activeDtype = null;
+      let webgpuError = null;
       const CDN_URL = ${JSON.stringify(TRANSFORMERS_CDN)};
       const MODEL = ${JSON.stringify(MODEL_ID)};
       const CACHE_NAME = ${JSON.stringify(CACHE_NAME)};
+      const APPROX_TOTAL = ${APPROX_BYTES_Q4F16};
 
       self.onmessage = async (ev) => {
         const { id, type, payload } = ev.data || {};
@@ -70,6 +77,7 @@
                   elapsedMs: 0,
                   device: activeDevice,
                   dtype: activeDtype,
+                  webgpuError,
                   hadCacheBefore: true,
                   cachedFiles: 0,
                   totalBytes: 0,
@@ -93,11 +101,23 @@
             TextStreamerCls = TextStreamer;
             env.allowLocalModels = false;
 
-            const hasGpu = typeof self.navigator !== 'undefined' && Boolean(self.navigator.gpu);
-            const plans = hasGpu
-              ? [{ device: 'webgpu', dtype: 'q4f16' }, { device: 'wasm', dtype: 'q4f16' }]
+            // Verify real WebGPU adapter availability inside the worker
+            let hasWebGPU = false;
+            if (typeof self.navigator !== 'undefined' && self.navigator.gpu) {
+              try {
+                const adapter = await self.navigator.gpu.requestAdapter();
+                hasWebGPU = Boolean(adapter);
+              } catch (e) {
+                webgpuError = e && e.message ? e.message : String(e);
+              }
+            }
+
+            const plans = hasWebGPU
+              ? [
+                { device: 'webgpu', dtype: 'q4f16' },
+                { device: 'wasm', dtype: 'q4f16' },
+              ]
               : [{ device: 'wasm', dtype: 'q4f16' }];
-            const APPROX_TOTAL = ${APPROX_BYTES_Q4F16};
 
             const onProgress = (p) => {
               if (!p || !p.file) return;
@@ -138,6 +158,9 @@
                 break;
               } catch (err) {
                 lastErr = err;
+                if (plan.device === 'webgpu') {
+                  webgpuError = err && err.message ? err.message : String(err);
+                }
                 generator = null;
               }
             }
@@ -166,10 +189,26 @@
                 elapsedMs: Math.round(performance.now() - t0),
                 device: activeDevice,
                 dtype: activeDtype,
+                webgpuError,
                 hadCacheBefore: cachedBefore.some((u) => u.includes(MODEL)),
                 cachedFiles: cachedCount,
                 totalBytes,
               },
+            });
+            return;
+          }
+
+          if (type === 'warmup') {
+            if (!generator) throw new Error('Qwen model not initialized');
+            const t0 = performance.now();
+            await generator(
+              [{ role: 'user', content: 'Hi' }],
+              { max_new_tokens: 1, do_sample: false, return_full_text: false }
+            );
+            self.postMessage({
+              id,
+              type: 'result',
+              data: { elapsedMs: Math.round(performance.now() - t0), device: activeDevice },
             });
             return;
           }
@@ -182,21 +221,26 @@
               { role: 'user', content: payload.userPrompt },
             ];
             let tokenCount = 0;
+            let firstTokenMs = null;
             let streamed = '';
             const streamer = TextStreamerCls
               ? new TextStreamerCls(generator.tokenizer, {
                 skip_prompt: true,
                 skip_special_tokens: true,
                 callback_function: (chunk) => {
+                  if (!chunk) return;
                   tokenCount++;
+                  if (firstTokenMs === null) {
+                    firstTokenMs = Math.max(1, Math.round(performance.now() - t0));
+                  }
                   streamed += chunk;
-                  self.postMessage({ id, type: 'token', chunk, full: streamed });
+                  self.postMessage({ id, type: 'token', chunk, full: streamed, firstTokenMs });
                 },
               })
               : undefined;
 
             const out = await generator(messages, {
-              max_new_tokens: payload.maxNewTokens || 220,
+              max_new_tokens: payload.maxNewTokens || 80,
               do_sample: Boolean(payload.temperature && payload.temperature > 0),
               temperature: payload.temperature || 0.1,
               return_full_text: false,
@@ -211,12 +255,20 @@
                 ? gt
                 : (Array.isArray(gt) && gt.length ? String(gt[gt.length - 1].content || '') : '');
             }
+            if (firstTokenMs === null) firstTokenMs = elapsedMs;
             const tps = tokenCount > 0 ? Number((tokenCount / (elapsedMs / 1000)).toFixed(1)) : null;
 
             self.postMessage({
               id,
               type: 'result',
-              data: { text, elapsedMs, tokensPerSec: tps, tokenCount },
+              data: {
+                text,
+                elapsedMs,
+                firstTokenMs,
+                tokensPerSec: tps,
+                tokenCount,
+                device: activeDevice,
+              },
             });
           }
         } catch (err) {
@@ -248,7 +300,10 @@
         return;
       }
       if (msg.type === 'token') {
-        if (entry.onToken) entry.onToken(msg.chunk, msg.full);
+        if (msg.firstTokenMs && _metrics.lastFirstTokenMs === null) {
+          _metrics.lastFirstTokenMs = msg.firstTokenMs;
+        }
+        if (entry.onToken) entry.onToken(msg.chunk, msg.full, msg.firstTokenMs);
         return;
       }
       _pending.delete(msg.id);
@@ -265,7 +320,9 @@
       _pending.clear();
       _worker = null;
       _initPromise = null;
+      _warmupPromise = null;
       _metrics.ready = false;
+      _metrics.warmedUp = false;
     };
 
     return _worker;
@@ -351,6 +408,7 @@
       _metrics.ready = true;
       _metrics.device = data.device || _metrics.device;
       _metrics.dtype = data.dtype || _metrics.dtype;
+      _metrics.webgpuError = data.webgpuError || null;
       _metrics.loadMs = data.elapsedMs;
       _metrics.hadCacheBefore = Boolean(data.hadCacheBefore);
       if (data.cachedFiles) _metrics.cachedFiles = data.cachedFiles;
@@ -370,27 +428,63 @@
   }
 
   /**
+   * Warm up Qwen in the background ONLY if the model is already cached (never auto-downloads).
+   * Compiles WebGPU shaders / WASM kernels with a tiny 1-token generation so the first real answer is fast.
+   * @returns {Promise<{ warmed: boolean, device?: string|null, warmupMs?: number }>}
+   */
+  async function warmUpIfCached() {
+    if (!isSupported()) return { warmed: false };
+    if (_metrics.warmedUp && _worker) {
+      return { warmed: true, device: _metrics.device, warmupMs: _metrics.warmupMs };
+    }
+    if (_warmupPromise) return _warmupPromise;
+
+    _warmupPromise = (async function () {
+      const cache = await inspectCache();
+      if (!cache.cached) return { warmed: false };
+      await init();
+      const res = await _callWorker('warmup', null, {});
+      _metrics.warmedUp = true;
+      _metrics.warmupMs = res.elapsedMs;
+      return { warmed: true, device: _metrics.device, warmupMs: res.elapsedMs };
+    })().catch(function () {
+      _warmupPromise = null;
+      return { warmed: false };
+    });
+
+    return _warmupPromise;
+  }
+
+  /**
    * Run text generation in the Qwen Blob Worker with streaming tokens and AbortController.
    * @param {{ systemPrompt: string, userPrompt: string, maxNewTokens?: number, temperature?: number, onProgress?: Function, onToken?: Function, signal?: AbortSignal }} opts
-   * @returns {Promise<{ text: string, elapsedMs: number, loadMs: number, tokensPerSec: number|null }>}
+   * @returns {Promise<{ text: string, elapsedMs: number, firstTokenMs: number, loadMs: number, tokensPerSec: number|null, device: string|null }>}
    */
   async function generate(opts) {
     const o = opts || {};
+    if (_warmupPromise) {
+      await _warmupPromise.catch(function () {});
+    }
     const info = await init({ onProgress: o.onProgress, signal: o.signal });
     const res = await _callWorker('generate', {
       systemPrompt: o.systemPrompt,
       userPrompt: o.userPrompt,
-      maxNewTokens: o.maxNewTokens || 130,
+      maxNewTokens: o.maxNewTokens || 80,
       temperature: o.temperature || 0,
     }, { onToken: o.onToken, signal: o.signal });
 
+    _metrics.lastFirstTokenMs = res.firstTokenMs;
     _metrics.lastAnswerMs = res.elapsedMs;
     _metrics.tokensPerSec = res.tokensPerSec;
+    if (res.device) _metrics.device = res.device;
+
     return {
       text: res.text,
       elapsedMs: res.elapsedMs,
+      firstTokenMs: res.firstTokenMs,
       loadMs: info.loadMs || 0,
       tokensPerSec: res.tokensPerSec,
+      device: _metrics.device,
     };
   }
 
@@ -410,6 +504,10 @@
       _metrics.cachedFiles = 0;
       _metrics.totalBytes = 0;
       _metrics.hadCacheBefore = false;
+      _metrics.loadMs = null;
+      _metrics.warmupMs = null;
+      _metrics.lastFirstTokenMs = null;
+      _metrics.lastAnswerMs = null;
     } catch (_e) { /* ignore */ }
   }
 
@@ -419,7 +517,9 @@
       _worker = null;
     }
     _initPromise = null;
+    _warmupPromise = null;
     _metrics.ready = false;
+    _metrics.warmedUp = false;
     for (const entry of _pending.values()) {
       const err = new Error('Worker terminated');
       err.name = 'AbortError';
@@ -435,6 +535,7 @@
     approxSizeMB,
     inspectCache,
     init,
+    warmUpIfCached,
     generate,
     getMetrics,
     clearCache,

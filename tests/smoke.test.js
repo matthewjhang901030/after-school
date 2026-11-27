@@ -1342,9 +1342,10 @@
           tip: 'Remember quill starts with qu.',
           example: 'She wrote with a quilltest pen.',
           source: 'qwen',
+          device: 'webgpu',
           fellBack: false,
           note: null,
-          elapsedMs: 420,
+          elapsedMs: 6815,
         });
 
         const panel = window.App.aiPanel.create({
@@ -1360,6 +1361,12 @@
         assert.equal(whyEl.querySelectorAll('img').length, 0, 'Model output must never be parsed as HTML');
         assert.ok(whyEl.textContent.includes('<img src=x'), 'Raw text rendered safely via textContent');
 
+        // Active device shown in AI badge and elapsedMs (6815 ms) formatted as 6.8 seconds
+        const badge = panel.root.querySelector('.ai-source-badge');
+        assert.ok(badge && badge.textContent.includes('WebGPU'), 'Active device (WebGPU) displayed in AI badge');
+        assert.ok(panel.root.textContent.includes('6.8'), 'Elapsed time 6815 ms must render as 6.8 seconds');
+        assert.ok(!panel.root.textContent.includes('6815'), 'Raw milliseconds must never render as seconds');
+
         // Disclaimer always shown (Section 5.6)
         assert.ok(panel.root.textContent.includes(window.App.i18n.t('ai.disclaimer')));
 
@@ -1373,6 +1380,67 @@
       } finally {
         ai.explainMistake = origExplain;
         cards.removeUserCard(tempCard.id);
+      }
+    });
+
+    test('TTFT timeout clears on first token, times out if silent, warmUpIfCached never auto-downloads, and 80-token JSON salvages', async () => {
+      const ai = window.App.ai;
+      const origInit = ai.qwen.init;
+      const origGen = ai.qwen.generate;
+      const origInspect = ai.qwen.inspectCache;
+      const origSup = ai.qwen.isSupported;
+
+      try {
+        ai.qwen.isSupported = () => true;
+
+        // 1. Truncated 80-token JSON salvage when both "why" and "tip" are present
+        const salvaged = ai.validateFeatureAOutput('{"why":"詞性不同。","tip":"把動詞和名詞分開', sampleFacts);
+        assert.equal(salvaged.valid, true, 'Cleanly truncated 80-token JSON should be salvaged');
+        assert.equal(salvaged.data.why, '詞性不同。');
+
+        // 2. TTFT timeout: first token arrives at 25ms, full answer at 90ms with timeoutMs=50ms -> MUST SUCCEED
+        ai.qwen.init = async () => ({ loadMs: 5, device: 'webgpu', dtype: 'q4f16' });
+        ai.qwen.generate = async (opts) => {
+          await new Promise((r) => setTimeout(r, 20));
+          if (opts.onToken) opts.onToken('{"why":', '{"why":');
+          await new Promise((r) => setTimeout(r, 70));
+          assert.equal(opts.maxNewTokens, 80, 'Feature A must cap Qwen at 80 new tokens');
+          return {
+            text: '{"why":"c 後面接 ei。","tip":"記住 ei。","example":null}',
+            elapsedMs: 90,
+            firstTokenMs: 20,
+            device: 'webgpu',
+          };
+        };
+        const streamedRes = await ai.explainMistake(sampleFacts, { forceTier: 'qwen', timeoutMs: 50 });
+        assert.equal(streamedRes.source, 'qwen', 'Streaming after first token must not time out');
+        assert.equal(streamedRes.device, 'webgpu');
+
+        // 3. TTFT timeout: NO token arrives before 40ms -> aborts & falls back to template with note 'timeout'
+        ai.qwen.generate = (opts) => new Promise((resolve, reject) => {
+          const onAbort = () => {
+            const err = new Error('Aborted');
+            err.name = 'AbortError';
+            reject(err);
+          };
+          if (opts.signal) opts.signal.addEventListener('abort', onAbort, { once: true });
+        });
+        const timedOutRes = await ai.explainMistake(sampleFacts, { forceTier: 'qwen', timeoutMs: 40 });
+        assert.equal(timedOutRes.source, 'template', 'Silent generation past TTFT timeout falls back to template');
+        assert.equal(timedOutRes.note, 'timeout');
+
+        // 4. warmUpIfCached MUST NOT call init() when model is not cached
+        let initCalled = false;
+        ai.qwen.inspectCache = async () => ({ cached: false, files: 0, bytes: 0 });
+        ai.qwen.init = async () => { initCalled = true; return {}; };
+        const warmRes = await ai.warmUpIfCached();
+        assert.equal(warmRes.warmed, false);
+        assert.equal(initCalled, false, 'warmUpIfCached must never auto-download when uncached');
+      } finally {
+        ai.qwen.init = origInit;
+        ai.qwen.generate = origGen;
+        ai.qwen.inspectCache = origInspect;
+        ai.qwen.isSupported = origSup;
       }
     });
   });

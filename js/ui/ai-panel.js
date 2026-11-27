@@ -26,9 +26,23 @@
     return (Math.max(0, bytes || 0) / (1024 * 1024)).toFixed(1);
   }
 
-  function _sourceLabel(source) {
+  function _formatSeconds(ms) {
+    const val = Math.max(0, Number(ms) || 0) / 1000;
+    return val.toFixed(1);
+  }
+
+  function _deviceLabel(device) {
+    if (device === 'webgpu') return 'WebGPU';
+    if (device === 'wasm') return 'WASM';
+    return '';
+  }
+
+  function _sourceLabel(source, device) {
     if (source === 'nano') return _t('ai.source.nano');
-    if (source === 'qwen') return _t('ai.source.qwen');
+    if (source === 'qwen') {
+      const dev = _deviceLabel(device);
+      return dev ? `${_t('ai.source.qwen')} · ${dev}` : _t('ai.source.qwen');
+    }
     return _t('ai.source.template');
   }
 
@@ -95,8 +109,8 @@
 
     function renderResult(res) {
       clear(bodySlot);
-      sourceBadge.textContent = _sourceLabel(res.source);
-      const sec = (Math.max(1, res.elapsedMs || 0) / 1000).toFixed(2);
+      sourceBadge.textContent = _sourceLabel(res.source, res.device);
+      const sec = _formatSeconds(res.elapsedMs);
       timingEl.textContent = _t('ai.elapsed', { sec });
 
       const rows = [
@@ -200,7 +214,8 @@
         await ensureAiLoaded();
         const status = await App.ai.detect();
         const plannedTier = tierOverride || o.forceTier || status.activeTier;
-        sourceBadge.textContent = _sourceLabel(plannedTier);
+        const plannedDevice = plannedTier === 'qwen' && status.qwen ? status.qwen.device : null;
+        sourceBadge.textContent = _sourceLabel(plannedTier, plannedDevice);
 
         if (plannedTier === 'qwen' && status.qwen && !status.qwen.cached) {
           progressWrap.hidden = false;
@@ -210,6 +225,9 @@
         const res = await App.ai.explainMistake(facts, {
           forceTier: tierOverride || o.forceTier,
           signal: controller ? controller.signal : undefined,
+          onDevice: (dev) => {
+            sourceBadge.textContent = _sourceLabel('qwen', dev);
+          },
           onProgress: (p) => {
             progressWrap.hidden = false;
             const total = p.total || 0;

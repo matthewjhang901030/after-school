@@ -835,6 +835,24 @@
       else if (phase === 'end') renderEnd();
     }
 
+    // Background warm-up ONLY when Qwen is already cached in Cache Storage (never auto-downloads)
+    if (typeof window !== 'undefined' && window.caches && App.store && App.store.settings) {
+      const prefAi = App.store.settings.get('aiEngine') || 'auto';
+      if (prefAi === 'auto' || prefAi === 'qwen') {
+        window.caches.open('transformers-cache').then((c) => c.keys()).then((keys) => {
+          const hasQwen = keys.some((r) => r.url.includes('Qwen2.5-0.5B-Instruct'));
+          if (!hasQwen) return;
+          const doWarm = () => {
+            if (App.ai && typeof App.ai.warmUpIfCached === 'function') App.ai.warmUpIfCached();
+          };
+          if (App.ai && App.ai.qwen) doWarm();
+          else if (App.loadScripts) {
+            App.loadScripts(['js/ai/templates.js', 'js/ai/nano.js', 'js/ai/qwen.js', 'js/ai/index.js']).then(doWarm).catch(() => {});
+          }
+        }).catch(() => {});
+      }
+    }
+
     // Optional direct launch query: #/games/wall?mode=daily or ?wall=w-01 (and ?instant=1 for tests)
     const q = (params && params.query) || {};
     if (q.wall) {

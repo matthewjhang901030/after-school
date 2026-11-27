@@ -41,14 +41,23 @@
         ? _t('ai.diag.cached_info', { files: st.qwen.cachedFiles, mb: mbCached })
         : _t('ai.diag.not_cached', { mb: st.qwen.approxMB });
 
+      const devLabel = qm.device === 'webgpu'
+        ? 'WebGPU'
+        : (qm.device === 'wasm'
+          ? (qm.webgpuError ? `WASM (WebGPU fallback: ${qm.webgpuError})` : 'WASM')
+          : (st.webgpu ? 'WebGPU (ready)' : 'WASM'));
+
       const timingParts = [];
-      if (qm.loadMs !== null && qm.loadMs !== undefined) timingParts.push(`load ${qm.loadMs} ms`);
-      if (qm.lastAnswerMs !== null && qm.lastAnswerMs !== undefined) timingParts.push(`answer ${qm.lastAnswerMs} ms`);
+      if (qm.loadMs !== null && qm.loadMs !== undefined) timingParts.push(`load ${(qm.loadMs / 1000).toFixed(1)}s`);
+      if (qm.warmupMs !== null && qm.warmupMs !== undefined) timingParts.push(`warm-up ${(qm.warmupMs / 1000).toFixed(1)}s`);
+      if (qm.lastFirstTokenMs !== null && qm.lastFirstTokenMs !== undefined) timingParts.push(`1st token ${(qm.lastFirstTokenMs / 1000).toFixed(1)}s`);
+      if (qm.lastAnswerMs !== null && qm.lastAnswerMs !== undefined) timingParts.push(`full ${(qm.lastAnswerMs / 1000).toFixed(1)}s`);
       if (qm.tokensPerSec) timingParts.push(`${qm.tokensPerSec} tok/s`);
       const timingText = timingParts.length ? timingParts.join(' · ') : '—';
 
       clear(statusGrid);
       statusGrid.appendChild(metaCard(_t('ai.diag.active_tier'), `${st.activeTier} (${st.preferred})`));
+      statusGrid.appendChild(metaCard(_t('ai.diag.device'), devLabel));
       statusGrid.appendChild(metaCard(_t('ai.diag.webgpu'), st.webgpu ? 'available' : 'unavailable'));
       statusGrid.appendChild(metaCard(_t('ai.diag.nano'), st.nano.availability));
       statusGrid.appendChild(metaCard(_t('ai.diag.translator'), st.nano.translatorAvailability));

@@ -12,7 +12,8 @@
   const App = (window.App = window.App || {});
   App.ai = App.ai || {};
 
-  const GENERATION_TIMEOUT_MS = 20000;
+  const FIRST_TOKEN_TIMEOUT_MS = 20000;
+  const FEATURE_A_MAX_TOKENS = 80;
 
   let _cachedStatus = null;
 
@@ -66,6 +67,8 @@
       }
     }
 
+    const qwenMetrics = App.ai.qwen ? App.ai.qwen.getMetrics() : {};
+
     _cachedStatus = {
       preferred,
       activeTier,
@@ -77,6 +80,10 @@
         cachedFiles: qwenCache.files,
         cachedBytes: qwenCache.bytes,
         approxMB: App.ai.qwen ? App.ai.qwen.approxSizeMB() : 467,
+        device: qwenMetrics.device || (webgpu ? 'webgpu' : 'wasm'),
+        activeDevice: qwenMetrics.device || null,
+        webgpuError: qwenMetrics.webgpuError || null,
+        warmedUp: Boolean(qwenMetrics.warmedUp),
       },
       checkedAt: Date.now(),
     };
@@ -86,7 +93,8 @@
   }
 
   /**
-   * Build the English system prompt and delimited FACTS block for Feature A (Section 5.4).
+   * Build a compact prompt and FACTS block for Feature A (Section 5.4).
+   * Kept concise so 0.5B models start streaming quickly and fit within ~80 tokens.
    * @param {Object} facts
    * @param {{ language?: string, targetTier?: string }} [opts]
    * @returns {{ systemPrompt: string, userPrompt: string }}
@@ -98,17 +106,12 @@
     const wantZh = lang !== 'en' && !isNano;
 
     const systemPrompt = [
-      'You are a patient English tutor for Taiwanese university students (2000-word level).',
-      'Use ONLY the information in FACTS. Do not invent new meanings, rules, or answers.',
-      'Explain why the attempt was wrong in 1-2 short sentences ("why").',
-      'Give one practical memory tip ("tip").',
-      facts && facts.word
-        ? 'Give one short natural English example sentence containing the exact WORD ("example"), or null if not applicable.'
-        : 'Set "example" to null.',
+      'English tutor. Use ONLY FACTS. Be brief.',
       wantZh
-        ? 'Write "why" and "tip" in natural Traditional Chinese (zh-Hant). Keep English words in English.'
-        : 'Write "why" and "tip" in clear, simple English.',
-      'Return ONLY a valid JSON object: {"why":"...","tip":"...","example":null}. No markdown.',
+        ? 'Reply ONLY with JSON in Traditional Chinese (keep English words in English): {"why":"1句原因","tip":"1句提示","example":null}'
+        : (facts && facts.word && facts.game !== 'wall'
+          ? 'Reply ONLY with JSON in simple English: {"why":"1 short sentence","tip":"1 short tip","example":"short sentence with WORD"}'
+          : 'Reply ONLY with JSON in simple English: {"why":"1 short sentence","tip":"1 short tip","example":null}'),
     ].join('\n');
 
     const lines = ['FACTS'];
@@ -119,27 +122,26 @@
 
     add('game', facts.game);
     add('word', facts.word);
-    add('meaning_zh', facts.meaningZh);
+    add('zh', facts.meaningZh);
     add('pos', facts.pos);
     add('expected', facts.expected);
-    add('user_answer', facts.userAnswer);
-    add('error_type', facts.errorType);
+    add('answer', facts.userAnswer);
+    add('error', facts.errorType);
     add('wrong_letters', facts.wrongLetters && facts.wrongLetters.length ? facts.wrongLetters : null);
 
     if (facts.game === 'wall') {
-      add('selected_items', facts.selectedItems);
-      add('one_away', facts.isOneAway ? 'yes (3 of 4 items belong together, 1 is different)' : 'no');
-      add('distinct_groups_mixed', facts.distinctGroupCount);
-      add('skills_mixed', facts.skillsPresent);
+      add('picked', facts.selectedItems);
+      add('one_away', facts.isOneAway ? '3 match, 1 does not' : 'no');
+      add('skills', facts.skillsPresent);
       if (Array.isArray(facts.cardMeanings) && facts.cardMeanings.length) {
-        add('known_meanings', facts.cardMeanings.map((m) => `${m.word}=${m.zh}`).join('; '));
+        add('meanings', facts.cardMeanings.slice(0, 3).map((m) => `${m.word}=${m.zh}`).join('; '));
       }
       if (facts.spoilerSafe) {
-        add('spoiler_rule', 'Do NOT reveal the hidden group names or full answer key; only guide the learner to spot the mismatch.');
+        add('note', 'Give a hint without revealing hidden group names.');
       } else if (facts.majorityGroup) {
-        add('majority_group', `${facts.majorityGroup.label} (${facts.majorityGroup.labelZh}): ${facts.majorityGroup.ruleZh}`);
+        add('group', `${facts.majorityGroup.labelZh}: ${facts.majorityGroup.ruleZh}`);
         if (Array.isArray(facts.oddItems) && facts.oddItems.length) {
-          add('other_items', facts.oddItems.map((it) => `${it.item} belongs to ${it.groupLabel} (${it.groupLabelZh})`).join('; '));
+          add('mismatch', facts.oddItems.map((it) => `${it.item}->${it.groupLabelZh}`).join('; '));
         }
       }
     }
@@ -193,6 +195,22 @@
         }
       }
     }
+
+    // Salvage cleanly truncated 80-token JSON when both "why" and "tip" already started
+    if (depth > 0) {
+      const partial = trimmed.slice(start);
+      const whyM = partial.match(/"why"\s*:\s*"((?:\\.|[^"\\])+)"/);
+      const tipM = partial.match(/"tip"\s*:\s*"((?:\\.|[^"\\])+)/);
+      if (whyM && tipM) {
+        const unesc = (s) => s.replace(/\\"/g, '"').replace(/\\n/g, ' ').replace(/\\\\/g, '\\').trim();
+        const exM = partial.match(/"example"\s*:\s*"((?:\\.|[^"\\])+)"/);
+        return {
+          why: unesc(whyM[1]),
+          tip: unesc(tipM[1]),
+          example: exM ? unesc(exM[1]) : null,
+        };
+      }
+    }
     return null;
   }
 
@@ -243,9 +261,19 @@
     return { valid: true, data: { why, tip, example } };
   }
 
-  async function _runWithTimeout(promiseFactory, timeoutMs, externalSignal) {
+  /**
+   * Run a streaming generation with a Time-To-First-Token (TTFT) timeout only:
+   * - If NO token arrives within `ttftTimeoutMs` (default 20s), aborts and throws TimeoutError.
+   * - Once the first token arrives, the timeout is cleared so streaming finishes naturally
+   *   (the user can still abort anytime via `externalSignal` / Stop button).
+   * @param {(signal: AbortSignal, markFirstToken: () => void) => Promise<any>} promiseFactory
+   * @param {number} ttftTimeoutMs
+   * @param {AbortSignal} [externalSignal]
+   */
+  async function _runWithFirstTokenTimeout(promiseFactory, ttftTimeoutMs, externalSignal) {
     const controller = new AbortController();
     let timedOut = false;
+    let firstTokenSeen = false;
 
     const onExternalAbort = () => controller.abort();
     if (externalSignal) {
@@ -257,42 +285,66 @@
       externalSignal.addEventListener('abort', onExternalAbort, { once: true });
     }
 
-    const timer = setTimeout(() => {
+    let timer = setTimeout(() => {
+      if (firstTokenSeen) return;
       timedOut = true;
       controller.abort();
-    }, timeoutMs);
+    }, ttftTimeoutMs);
+
+    function markFirstToken() {
+      if (firstTokenSeen) return;
+      firstTokenSeen = true;
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    }
 
     try {
-      return await promiseFactory(controller.signal);
+      return await promiseFactory(controller.signal, markFirstToken);
     } catch (err) {
       if (timedOut) {
-        const tErr = new Error('AI generation timed out');
+        const tErr = new Error('No token received before timeout');
         tErr.name = 'TimeoutError';
         throw tErr;
       }
       throw err;
     } finally {
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       if (externalSignal) externalSignal.removeEventListener('abort', onExternalAbort);
     }
   }
 
   /**
+   * Warm up Qwen in the background ONLY when already cached (never auto-downloads).
+   * Safe to call on game entry so the first real AI answer is fast.
+   * @returns {Promise<{ warmed: boolean, device?: string|null, warmupMs?: number }>}
+   */
+  async function warmUpIfCached() {
+    const preferred = App.store && App.store.settings
+      ? App.store.settings.get('aiEngine') || 'auto'
+      : 'auto';
+    if (preferred === 'templates' || preferred === 'nano') return { warmed: false };
+    if (!App.ai.qwen || typeof App.ai.qwen.warmUpIfCached !== 'function') return { warmed: false };
+    return App.ai.qwen.warmUpIfCached();
+  }
+
+  /**
    * Feature A: Explain a learner mistake using the active/forced AI tier (Section 5.3–5.6).
-   * Always returns a safe, validated `{ why, tip, example, source, fellBack, elapsedMs }`.
+   * Always returns a safe, validated `{ why, tip, example, source, device, fellBack, elapsedMs }`.
    * @param {Object} facts
-   * @param {{ forceTier?: 'nano'|'qwen'|'template', signal?: AbortSignal, onProgress?: Function, onToken?: Function, timeoutMs?: number }} [opts]
-   * @returns {Promise<{ why: string, tip: string, example: string|null, source: 'nano'|'qwen'|'template', fellBack: boolean, note: string|null, elapsedMs: number, loadMs?: number }>}
+   * @param {{ forceTier?: 'nano'|'qwen'|'template', signal?: AbortSignal, onProgress?: Function, onToken?: Function, onDevice?: Function, timeoutMs?: number }} [opts]
+   * @returns {Promise<Object>}
    */
   async function explainMistake(facts, opts) {
     const o = opts || {};
-    const t0 = performance.now();
-    const timeoutMs = Number.isFinite(o.timeoutMs) ? o.timeoutMs : GENERATION_TIMEOUT_MS;
+    const timeoutMs = Number.isFinite(o.timeoutMs) ? o.timeoutMs : FIRST_TOKEN_TIMEOUT_MS;
     const status = await detect();
     const tier = o.forceTier || status.activeTier || 'template';
     const lang = App.i18n ? App.i18n.lang() : 'zh-TW';
+    let genStart = performance.now();
 
-    function fallback(note) {
+    function fallback(note, device) {
       const tpl = App.ai.templates
         ? App.ai.templates.explainMistake(facts)
         : { why: '', tip: '', example: null };
@@ -301,29 +353,34 @@
         tip: tpl.tip,
         example: tpl.example,
         source: 'template',
+        device: device || null,
         fellBack: tier !== 'template',
         note: note || null,
-        elapsedMs: Math.round(performance.now() - t0),
+        elapsedMs: Math.max(1, Math.round(performance.now() - genStart)),
       };
     }
 
     if (tier === 'template') {
-      return fallback(null);
+      return fallback(null, null);
     }
 
     // ── Tier 1: Gemini Nano (+ Translator) ───────────────────────
     if (tier === 'nano' && App.ai.nano) {
       const prompt = buildFeatureAPrompt(facts, { language: lang, targetTier: 'nano' });
+      genStart = performance.now();
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
-          const res = await _runWithTimeout(
-            (sig) => App.ai.nano.generate({
+          const res = await _runWithFirstTokenTimeout(
+            (sig, markFirst) => App.ai.nano.generate({
               systemPrompt: prompt.systemPrompt,
               userPrompt: prompt.userPrompt,
               schema: FEATURE_A_SCHEMA,
               signal: sig,
               onProgress: o.onProgress,
-              onToken: o.onToken,
+              onToken: (chunk, full) => {
+                if (chunk) markFirst();
+                if (typeof o.onToken === 'function') o.onToken(chunk, full);
+              },
             }),
             timeoutMs,
             o.signal
@@ -341,49 +398,59 @@
               tip,
               example,
               source: 'nano',
+              device: 'nano',
               fellBack: false,
               note: null,
               elapsedMs: res.elapsedMs,
             };
           }
         } catch (err) {
-          if (err && err.name === 'AbortError') return fallback('aborted');
-          if (err && err.name === 'TimeoutError') return fallback('timeout');
-          if (attempt === 1) return fallback('nano_error');
+          if (err && err.name === 'AbortError') return fallback('aborted', null);
+          if (err && err.name === 'TimeoutError') return fallback('timeout', null);
+          if (attempt === 1) return fallback('nano_error', null);
         }
       }
-      return fallback('invalid_json');
+      return fallback('invalid_json', null);
     }
 
     // ── Tier 2: Qwen 2.5 0.5B Instruct (Transformers.js Blob Worker) ─
     if (tier === 'qwen' && App.ai.qwen) {
       const prompt = buildFeatureAPrompt(facts, { language: lang, targetTier: 'qwen' });
       let loadMs = 0;
+      let activeDevice = null;
       try {
-        // Download / cache init runs WITHOUT the 20s generation timeout so first download succeeds cleanly
+        // Download / cache init runs WITHOUT the TTFT timeout so first download succeeds cleanly
         const info = await App.ai.qwen.init({
           onProgress: o.onProgress,
           signal: o.signal,
         });
         loadMs = info.loadMs || 0;
+        activeDevice = info.device || null;
+        if (typeof o.onDevice === 'function' && activeDevice) o.onDevice(activeDevice);
       } catch (err) {
-        if (err && err.name === 'AbortError') return fallback('aborted');
-        return fallback('download_error');
+        if (err && err.name === 'AbortError') return fallback('aborted', null);
+        return fallback('download_error', null);
       }
 
-      // Generation runs with 20s timeout + 1 retry on invalid JSON (Section 5.4 & 5.6)
+      // Reset answer timer AFTER download/init so elapsedMs reports true answer time only
+      genStart = performance.now();
+
+      // Generation uses 20s Time-To-First-Token timeout + 1 retry on invalid JSON
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
-          const res = await _runWithTimeout(
-            (sig) => App.ai.qwen.generate({
+          const res = await _runWithFirstTokenTimeout(
+            (sig, markFirst) => App.ai.qwen.generate({
               systemPrompt: prompt.systemPrompt,
               userPrompt: attempt === 0
                 ? prompt.userPrompt
-                : prompt.userPrompt + '\nRemember: output ONLY valid JSON {"why":"...","tip":"...","example":null}.',
-              maxNewTokens: 130,
+                : prompt.userPrompt + '\nJSON ONLY: {"why":"...","tip":"...","example":null}',
+              maxNewTokens: FEATURE_A_MAX_TOKENS,
               temperature: 0,
               signal: sig,
-              onToken: o.onToken,
+              onToken: (chunk, full) => {
+                if (chunk) markFirst();
+                if (typeof o.onToken === 'function') o.onToken(chunk, full);
+              },
             }),
             timeoutMs,
             o.signal
@@ -396,22 +463,24 @@
               tip: checked.data.tip,
               example: checked.data.example,
               source: 'qwen',
+              device: res.device || activeDevice,
               fellBack: false,
               note: null,
               elapsedMs: res.elapsedMs,
+              firstTokenMs: res.firstTokenMs || null,
               loadMs,
             };
           }
         } catch (err) {
-          if (err && err.name === 'AbortError') return fallback('aborted');
-          if (err && err.name === 'TimeoutError') return fallback('timeout');
-          if (attempt === 1) return fallback('qwen_error');
+          if (err && err.name === 'AbortError') return fallback('aborted', activeDevice);
+          if (err && err.name === 'TimeoutError') return fallback('timeout', activeDevice);
+          if (attempt === 1) return fallback('qwen_error', activeDevice);
         }
       }
-      return fallback('invalid_json');
+      return fallback('invalid_json', activeDevice);
     }
 
-    return fallback('unavailable');
+    return fallback('unavailable', null);
   }
 
   function invalidateDetection() {
@@ -424,9 +493,12 @@
   }
 
   Object.assign(App.ai, {
-    GENERATION_TIMEOUT_MS,
+    FIRST_TOKEN_TIMEOUT_MS,
+    GENERATION_TIMEOUT_MS: FIRST_TOKEN_TIMEOUT_MS,
+    FEATURE_A_MAX_TOKENS,
     FEATURE_A_SCHEMA,
     detect,
+    warmUpIfCached,
     buildFeatureAPrompt,
     extractJsonObject,
     validateFeatureAOutput,
