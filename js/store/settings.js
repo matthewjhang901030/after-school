@@ -23,6 +23,7 @@
     speechRate: 1.0,                   // number (0.5–2.0)
     safeMode: false,                   // boolean — 安心模式
     aiEngine: 'auto',                  // 'auto' | 'nano' | 'qwen' | 'templates'
+    qwenModel: '0.5b',                 // '0.5b' (~467 MB) | '1.5b' (~1172 MB)
     onboarded: false,                  // boolean — 3-step onboarding completed (M4)
     class13WarningDismissed: false,    // boolean — Class 13 content warning (M10)
   };

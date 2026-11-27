@@ -1,7 +1,7 @@
 /**
- * AI Diagnostics page (#/settings/ai) — M6 live tier detection, Qwen cache,
- * measured timings (TTFT, total, device, tokens), Last AI Attempt inspector,
- * and "測試一下 (Feature A)" / "刪除模型快取".
+ * AI Diagnostics page (#/settings/ai) — M6 live tier detection, opt-in Qwen 0.5B / 1.5B
+ * model selector with download sizes, per-model measured timings (load, TTFT, total,
+ * device, tokens), Last AI Attempt inspector, and "測試一下" / "刪除模型快取".
  * All model outputs are rendered strictly via textContent (never innerHTML).
  * @namespace App.pages.aiDiagnostics
  */
@@ -22,10 +22,23 @@
     return (Math.max(0, Number(ms)) / 1000).toFixed(1) + 's';
   }
 
+  function _formatModelMetrics(m) {
+    if (!m) return '—';
+    const parts = [];
+    if (m.loadMs != null) parts.push(`load ${_fmtSec(m.loadMs)}`);
+    if (m.lastFirstTokenMs != null) parts.push(`1st ${_fmtSec(m.lastFirstTokenMs)}`);
+    if (m.lastAnswerMs != null) parts.push(`total ${_fmtSec(m.lastAnswerMs)}`);
+    if (m.device) parts.push(String(m.device).toUpperCase());
+    if (m.lastTokenCount != null) parts.push(`${m.lastTokenCount} tok`);
+    return parts.length ? parts.join(' · ') : '—';
+  }
+
   function mount(root) {
     _root = root;
     const { el, clear } = App.dom;
+    const settings = App.store && App.store.settings;
 
+    const modelSwitchSlot = el('section', { style: 'margin-bottom: var(--space-6);' });
     const statusGrid = el('div', { className: 'detail-meta-grid', style: 'margin-bottom: var(--space-6);' }, [
       el('div', { className: 'detail-meta-item', text: _t('misc.loading') }),
     ]);
@@ -37,6 +50,34 @@
         el('div', { className: 'detail-meta-label', text: label }),
         el('div', { className: 'detail-meta-value', text: value }),
       ]);
+    }
+
+    function renderModelSelector() {
+      clear(modelSwitchSlot);
+      const cur = settings ? (settings.get('qwenModel') || '0.5b') : '0.5b';
+      const opts = [
+        { value: '0.5b', label: _t('settings.qwen_model.05b') },
+        { value: '1.5b', label: _t('settings.qwen_model.15b') },
+      ];
+      modelSwitchSlot.appendChild(
+        el('h2', { className: 'text-muted text-small', style: 'margin-bottom: var(--space-2);', text: _t('settings.qwen_model') })
+      );
+      modelSwitchSlot.appendChild(
+        el('div', { style: 'display: flex; flex-wrap: wrap; gap: var(--space-2);' }, opts.map((opt) =>
+          el('button', {
+            type: 'button',
+            className: 'btn ' + (cur === opt.value ? 'btn-primary' : 'btn-secondary'),
+            'data-diag-qwen-model': opt.value,
+            onClick: () => {
+              if (settings) settings.update({ qwenModel: opt.value });
+              if (App.ai && App.ai.qwen && typeof App.ai.qwen.destroy === 'function') App.ai.qwen.destroy();
+              if (App.ai && typeof App.ai.invalidateDetection === 'function') App.ai.invalidateDetection();
+              renderModelSelector();
+              refreshStatus();
+            },
+          }, [el('span', { className: 'btn-label', text: opt.label })])
+        ))
+      );
     }
 
     function renderLastAttempt(last) {
@@ -56,6 +97,7 @@
         ? `✗ ${_t('ai.diag.status_fallback')}`
         : `○ ${_t('ai.diag.status_ok')}`;
       const devStr = last.device ? String(last.device).toUpperCase() : '—';
+      const modelTag = last.modelLabel || last.tier || 'template';
       const timingSummary = [
         `${_t('ai.diag.ttft')}: ${_fmtSec(last.firstTokenMs)}`,
         `${_t('ai.diag.total_time')}: ${_fmtSec(last.elapsedMs)}`,
@@ -64,7 +106,7 @@
 
       const card = el('div', { className: 'ai-panel', 'data-ai-last-attempt': 'true' }, [
         el('div', { className: 'detail-meta-grid' }, [
-          metaCard(_t('ai.diag.attempt_status'), `${statusText} (${last.tier || 'template'})`),
+          metaCard(_t('ai.diag.attempt_status'), `${statusText} (${modelTag})`),
           metaCard(_t('ai.diag.device'), devStr),
           metaCard(_t('ai.diag.rejection_reason'), last.rejectionReason || _t('ai.diag.reason_none')),
           metaCard(_t('ai.diag.metrics'), timingSummary),
@@ -84,6 +126,7 @@
       if (!_root || !App.ai) return;
       const st = await App.ai.detect(true);
       const qm = App.ai.qwen ? App.ai.qwen.getMetrics() : {};
+      const allM = App.ai.qwen && App.ai.qwen.getAllMetrics ? App.ai.qwen.getAllMetrics() : { '0.5b': qm, '1.5b': null };
       const last = typeof App.ai.getLastAttempt === 'function' ? App.ai.getLastAttempt() : null;
       const mbCached = ((st.qwen.cachedBytes || 0) / (1024 * 1024)).toFixed(1);
       const cacheText = st.qwen.cached
@@ -97,26 +140,15 @@
           ? (qm.webgpuError ? `WASM (WebGPU fallback: ${qm.webgpuError})` : 'WASM')
           : (st.webgpu ? 'WebGPU (ready)' : 'WASM'));
 
-      const firstTok = qm.lastFirstTokenMs != null ? qm.lastFirstTokenMs : (last ? last.firstTokenMs : null);
-      const totalMs = qm.lastAnswerMs != null ? qm.lastAnswerMs : (last ? last.elapsedMs : null);
-      const tokCount = qm.lastTokenCount != null ? qm.lastTokenCount : (last ? last.tokenCount : null);
-
-      const timingParts = [];
-      if (firstTok != null) timingParts.push(`1st ${_fmtSec(firstTok)}`);
-      if (totalMs != null) timingParts.push(`total ${_fmtSec(totalMs)}`);
-      if (activeDev) timingParts.push(String(activeDev).toUpperCase());
-      if (tokCount != null) timingParts.push(`${tokCount} tok`);
-      if (qm.loadMs != null) timingParts.push(`load ${_fmtSec(qm.loadMs)}`);
-      const timingText = timingParts.length ? timingParts.join(' · ') : '—';
-
       clear(statusGrid);
       statusGrid.appendChild(metaCard(_t('ai.diag.active_tier'), `${st.activeTier} (${st.preferred})`));
       statusGrid.appendChild(metaCard(_t('ai.diag.device'), devLabel));
+      statusGrid.appendChild(metaCard(_t('ai.diag.qwen_cache'), `${st.qwen.modelLabel}: ${cacheText}`));
       statusGrid.appendChild(metaCard(_t('ai.diag.webgpu'), st.webgpu ? 'available' : 'unavailable'));
       statusGrid.appendChild(metaCard(_t('ai.diag.nano'), st.nano.availability));
       statusGrid.appendChild(metaCard(_t('ai.diag.translator'), st.nano.translatorAvailability));
-      statusGrid.appendChild(metaCard(_t('ai.diag.qwen_cache'), cacheText));
-      statusGrid.appendChild(metaCard(_t('ai.diag.metrics'), timingText));
+      statusGrid.appendChild(metaCard(_t('ai.diag.metrics_05b'), _formatModelMetrics(allM['0.5b'])));
+      statusGrid.appendChild(metaCard(_t('ai.diag.metrics_15b'), _formatModelMetrics(allM['1.5b'])));
 
       renderLastAttempt(last);
     }
@@ -129,15 +161,13 @@
         clear(testSlot);
         if (!App.aiPanel) return;
         const sampleFacts = {
-          game: 'class13',
-          word: 'receive',
-          meaningZh: '收到',
-          pos: 'v.',
-          expected: 'receive',
-          userAnswer: 'recieve',
-          errorType: 'spelling',
-          wrongLetters: ['i', 'e'],
-          cardExample: 'Did you receive my email yesterday?',
+          game: 'wall',
+          selectedItems: ['ate', 'took', "You're welcome", 'eraser'],
+          selectedBreakdown: [
+            { label: 'Irregular past tense', labelZh: '不規則過去式', ruleZh: '不加 -ed 的常見動詞過去式。', skill: 'grammar', items: ['ate', 'took'] },
+            { label: 'Replies to "Thank you"', labelZh: '回應「謝謝」', ruleZh: '回應道謝的日常短句。', skill: 'dialogue', items: ["You're welcome"] },
+            { label: 'Study supplies', labelZh: '書包文具', ruleZh: '教室與書包裡常見的學習用品。', skill: 'vocab', items: ['eraser'] },
+          ],
         };
         _activePanel = App.aiPanel.create(sampleFacts, { autoStart: false });
         testSlot.appendChild(_activePanel.root);
@@ -163,6 +193,7 @@
           ]),
           el('h1', { className: 'page-title', text: _t('settings.ai_diag') }),
         ]),
+        modelSwitchSlot,
         statusGrid,
         el('div', { style: 'display: flex; flex-wrap: wrap; gap: var(--space-2);' }, [
           testBtn,
@@ -176,6 +207,7 @@
       ])
     );
 
+    renderModelSelector();
     refreshStatus();
   }
 

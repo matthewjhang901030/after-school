@@ -483,6 +483,22 @@
           groupLabelZh: activeWall.groups[t.groupIndex].labelZh,
         }));
 
+      const breakdownMap = new Map();
+      for (const st of selectedTiles) {
+        const g = activeWall.groups[st.groupIndex];
+        if (!breakdownMap.has(st.groupIndex)) {
+          breakdownMap.set(st.groupIndex, {
+            label: g.label,
+            labelZh: g.labelZh,
+            ruleZh: g.ruleZh,
+            skill: g.skill,
+            items: [],
+          });
+        }
+        breakdownMap.get(st.groupIndex).items.push(st.text);
+      }
+      const selectedBreakdown = Array.from(breakdownMap.values()).sort((a, b) => b.items.length - a.items.length);
+
       const baseFacts = {
         game: 'wall',
         cardId: primaryCard ? primaryCard.id : null,
@@ -491,14 +507,14 @@
         pos: primaryCard ? primaryCard.pos : null,
         errorType: 'confusion',
         selectedItems: selectedTiles.map((t) => t.text),
+        selectedBreakdown,
         isOneAway: maxMatchCount === 3,
         distinctGroupCount: groupCounts.size,
         skillsPresent,
         cardMeanings,
       };
-      lastMistakeFacts = Object.assign({}, baseFacts, { spoilerSafe: true });
+      lastMistakeFacts = Object.assign({}, baseFacts);
       sessionMistakes.push(Object.assign({}, baseFacts, {
-        spoilerSafe: false,
         majorityGroup: majGrp ? {
           label: majGrp.label,
           labelZh: majGrp.labelZh,
@@ -835,12 +851,15 @@
       else if (phase === 'end') renderEnd();
     }
 
-    // Background warm-up ONLY when Qwen is already cached in Cache Storage (never auto-downloads)
+    // Background warm-up ONLY when the selected Qwen model is already cached (never auto-downloads)
     if (typeof window !== 'undefined' && window.caches && App.store && App.store.settings) {
       const prefAi = App.store.settings.get('aiEngine') || 'auto';
+      const prefModel = App.store.settings.get('qwenModel') === '1.5b'
+        ? 'Qwen2.5-1.5B-Instruct'
+        : 'Qwen2.5-0.5B-Instruct';
       if (prefAi === 'auto' || prefAi === 'qwen') {
         window.caches.open('transformers-cache').then((c) => c.keys()).then((keys) => {
-          const hasQwen = keys.some((r) => r.url.includes('Qwen2.5-0.5B-Instruct'));
+          const hasQwen = keys.some((r) => r.url.includes(prefModel));
           if (!hasQwen) return;
           const doWarm = () => {
             if (App.ai && typeof App.ai.warmUpIfCached === 'function') App.ai.warmUpIfCached();

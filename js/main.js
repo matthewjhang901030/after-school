@@ -129,8 +129,11 @@
       if (changed.theme) {
         applyTheme(changed.theme);
       }
-      if (changed.aiEngine && App.ai && typeof App.ai.invalidateDetection === 'function') {
-        App.ai.invalidateDetection();
+      if ((changed.aiEngine || changed.qwenModel) && App.ai) {
+        if (changed.qwenModel && App.ai.qwen && typeof App.ai.qwen.destroy === 'function') {
+          App.ai.qwen.destroy();
+        }
+        if (typeof App.ai.invalidateDetection === 'function') App.ai.invalidateDetection();
       }
     });
   }

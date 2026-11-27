@@ -37,11 +37,12 @@
     return '';
   }
 
-  function _sourceLabel(source, device) {
+  function _sourceLabel(source, device, modelLabel) {
     if (source === 'nano') return _t('ai.source.nano');
     if (source === 'qwen') {
+      const base = modelLabel || _t('ai.source.qwen');
       const dev = _deviceLabel(device);
-      return dev ? `${_t('ai.source.qwen')} · ${dev}` : _t('ai.source.qwen');
+      return dev ? `${base} · ${dev}` : base;
     }
     return _t('ai.source.template');
   }
@@ -109,7 +110,7 @@
 
     function renderResult(res) {
       clear(bodySlot);
-      sourceBadge.textContent = _sourceLabel(res.source, res.device);
+      sourceBadge.textContent = _sourceLabel(res.source, res.device, res.modelLabel);
       const sec = _formatSeconds(res.elapsedMs);
       timingEl.textContent = _t('ai.elapsed', { sec });
 
@@ -201,9 +202,20 @@
         },
       }, [el('span', { className: 'btn-label', text: _t('ai.use_template_now') })]);
 
+      const instantReasonText = (App.ai && typeof App.ai.buildDeterministicReason === 'function')
+        ? App.ai.buildDeterministicReason(facts)
+        : '';
+      const instantReasonRow = instantReasonText
+        ? el('div', { className: 'ai-result-row' }, [
+          el('div', { className: 'ai-result-label', text: _t('ai.label_why') }),
+          el('div', { className: 'ai-result-text', text: instantReasonText }),
+        ])
+        : null;
+
       clear(bodySlot);
       bodySlot.appendChild(
         el('div', { className: 'ai-result-block', 'data-ai-state': 'loading' }, [
+          instantReasonRow,
           progressWrap,
           streamBox,
           el('div', { className: 'ai-panel-actions' }, [stopBtn, tplBtn]),
@@ -212,10 +224,23 @@
 
       try {
         await ensureAiLoaded();
+        if (!instantReasonRow && App.ai && typeof App.ai.buildDeterministicReason === 'function') {
+          const rText = App.ai.buildDeterministicReason(facts);
+          if (rText) {
+            bodySlot.firstElementChild.insertBefore(
+              el('div', { className: 'ai-result-row' }, [
+                el('div', { className: 'ai-result-label', text: _t('ai.label_why') }),
+                el('div', { className: 'ai-result-text', text: rText }),
+              ]),
+              progressWrap
+            );
+          }
+        }
         const status = await App.ai.detect();
         const plannedTier = tierOverride || o.forceTier || status.activeTier;
         const plannedDevice = plannedTier === 'qwen' && status.qwen ? status.qwen.device : null;
-        sourceBadge.textContent = _sourceLabel(plannedTier, plannedDevice);
+        const plannedModelLabel = plannedTier === 'qwen' && status.qwen ? status.qwen.modelLabel : null;
+        sourceBadge.textContent = _sourceLabel(plannedTier, plannedDevice, plannedModelLabel);
 
         if (plannedTier === 'qwen' && status.qwen && !status.qwen.cached) {
           progressWrap.hidden = false;
@@ -225,8 +250,8 @@
         const res = await App.ai.explainMistake(facts, {
           forceTier: tierOverride || o.forceTier,
           signal: controller ? controller.signal : undefined,
-          onDevice: (dev) => {
-            sourceBadge.textContent = _sourceLabel('qwen', dev);
+          onDevice: (dev, modelLbl) => {
+            sourceBadge.textContent = _sourceLabel('qwen', dev, modelLbl || plannedModelLabel);
           },
           onProgress: (p) => {
             progressWrap.hidden = false;

@@ -1351,20 +1351,25 @@
         assert.ok(rNano.why.startsWith('[ZH] '), 'Nano output translated when Translator is available');
         assert.ok(rNano.example && rNano.example.includes('receive'));
 
-        // Tier 2: Forced Qwen (plain-text 2-line format using chat messages, no JSON required)
+        // Tier 2: Forced Qwen (code builds 錯誤原因; Qwen writes ONLY 1-sentence 記憶提示)
         ai.qwen.isSupported = () => true;
         ai.qwen.init = async () => ({ loadMs: 50, device: 'webgpu', dtype: 'q4f16' });
         ai.qwen.generate = async (opts) => {
           assert.ok(Array.isArray(opts.messages) && opts.messages.length >= 4, 'Qwen uses multi-turn few-shot chat template');
           assert.ok(opts.temperature > 0 && opts.temperature <= 0.4, 'Qwen uses low temperature (~0.3)');
+          assert.equal(opts.noRepeatNgramSize, 3, 'Qwen uses no_repeat_ngram_size: 3');
+          assert.equal(opts.maxNewTokens, 60, 'Qwen caps tip at ~60 new tokens');
+          assert.equal(opts.stopOnSentence, true, 'Qwen stops at first newline or 。');
           return {
-            text: '原因：receive 的 c 后面要接 ei。\n记忆提示：口诀是 c 后面接 ei。',
+            text: '记住 c 后面接 ei 就不会拼反。多余的第二句。',
             elapsedMs: 2800,
             firstTokenMs: 420,
-            tokenCount: 28,
+            tokenCount: 16,
             loadMs: 50,
             tokensPerSec: 18.5,
             device: 'webgpu',
+            modelKey: '0.5b',
+            modelLabel: 'Qwen 2.5 0.5B',
           };
         };
         settings.update({ aiEngine: 'qwen' });
@@ -1372,7 +1377,8 @@
         const rQwen = await ai.explainMistake(sampleFacts);
         assert.equal(rQwen.source, 'qwen');
         assert.equal(rQwen.fellBack, false);
-        assert.ok(rQwen.why.includes('receive') && rQwen.why.includes('後面'), 'S2T applied to Qwen plain text');
+        assert.ok(rQwen.why.includes('receive') && rQwen.why.includes('recieve'), '錯誤原因 is generated deterministically by code');
+        assert.equal(rQwen.tip, '記住 c 後面接 ei 就不會拼反。', 'Tip stops at first 。 and converts S2T');
 
         // Unacceptable output (pure English gibberish in zh-TW) retries once, falls back, and records raw output + reason
         let qwenCalls = 0;
@@ -1386,18 +1392,20 @@
             loadMs: 0,
             tokensPerSec: 6.7,
             device: 'webgpu',
+            modelKey: '0.5b',
+            modelLabel: 'Qwen 2.5 0.5B',
           };
         };
         const rFallback = await ai.explainMistake(sampleFacts);
         assert.equal(qwenCalls, 2, 'Must retry once on rejected output before falling back');
         assert.equal(rFallback.source, 'template');
         assert.equal(rFallback.fellBack, true);
-        assert.equal(rFallback.note, 'not_chinese');
-        assert.ok(rFallback.why.includes('receive'), 'Fallback template still explains the mistake');
+        assert.equal(rFallback.note, 'no_chinese');
+        assert.ok(rFallback.why.includes('receive'), 'Code-generated reason still explains the mistake');
 
         const lastAttempt = ai.getLastAttempt();
         assert.ok(lastAttempt && lastAttempt.rawOutput === 'sorry cannot answer in chinese', 'Raw model output recorded for diagnostics');
-        assert.equal(lastAttempt.rejectionReason, 'not_chinese', 'Exact rejection reason recorded');
+        assert.equal(lastAttempt.rejectionReason, 'no_chinese', 'Exact rejection reason recorded');
         assert.equal(lastAttempt.tokenCount, 6);
 
         // AI Diagnostics page displays Last AI attempt (raw output + rejection reason + telemetry)
@@ -1406,7 +1414,7 @@
         await new Promise((r) => setTimeout(r, 20));
         const diagAttempt = mountRoot.querySelector('[data-ai-last-attempt="true"]');
         assert.ok(diagAttempt, 'AI Diagnostics renders Last AI attempt section');
-        assert.ok(diagAttempt.textContent.includes('not_chinese'), 'Rejection reason displayed in Diagnostics');
+        assert.ok(diagAttempt.textContent.includes('no_chinese'), 'Rejection reason displayed in Diagnostics');
         assert.ok(mountRoot.querySelector('[data-ai-raw-output="true"]').textContent.includes('sorry cannot answer'));
         window.App.pages.aiDiagnostics.unmount();
       } finally {
@@ -1493,14 +1501,17 @@
         ai.qwen.init = async () => ({ loadMs: 5, device: 'webgpu', dtype: 'q4f16' });
         ai.qwen.generate = async (opts) => {
           await new Promise((r) => setTimeout(r, 20));
-          if (opts.onToken) opts.onToken('{"why":', '{"why":');
+          if (opts.onToken) opts.onToken('記住', '記住');
           await new Promise((r) => setTimeout(r, 70));
-          assert.equal(opts.maxNewTokens, 80, 'Feature A must cap Qwen at 80 new tokens');
+          assert.equal(opts.maxNewTokens, 60, 'Feature A must cap Qwen tip at 60 new tokens');
           return {
-            text: '{"why":"c 後面接 ei。","tip":"記住 ei。","example":null}',
+            text: '記住 c 後面接 ei 就不會拼錯。',
             elapsedMs: 90,
             firstTokenMs: 20,
+            tokenCount: 10,
             device: 'webgpu',
+            modelKey: '0.5b',
+            modelLabel: 'Qwen 2.5 0.5B',
           };
         };
         const streamedRes = await ai.explainMistake(sampleFacts, { forceTier: 'qwen', timeoutMs: 50 });
@@ -1532,6 +1543,112 @@
         ai.qwen.generate = origGen;
         ai.qwen.inspectCache = origInspect;
         ai.qwen.isSupported = origSup;
+      }
+    });
+
+    test('deterministic reason builder covers all 12 walls, repetition quality gate rejects degenerate loops, and model selector switches 0.5B/1.5B', async () => {
+      const ai = window.App.ai;
+      const walls = window.App.data.walls;
+      const settings = window.App.store.settings;
+      const origModel = settings.get('qwenModel');
+      const origInit = ai.qwen.init;
+      const origGen = ai.qwen.generate;
+      const origSup = ai.qwen.isSupported;
+
+      try {
+        // 1. Deterministic 錯誤原因 for ALL 12 walls
+        assert.ok(walls.length >= 12);
+        for (const w of walls) {
+          const picked = [
+            w.groups[0].items[0],
+            w.groups[0].items[1],
+            w.groups[1].items[0],
+            w.groups[2].items[0],
+          ];
+          const breakdown = ai.templates.buildWallBreakdown(w, picked);
+          assert.equal(breakdown.length, 3, `${w.id} mixed pick spans 3 groups`);
+          const reason = ai.buildDeterministicReason({
+            game: 'wall',
+            selectedItems: picked,
+            selectedBreakdown: breakdown,
+          });
+          for (const item of picked) {
+            assert.ok(reason.includes(item), `${w.id} reason must mention "${item}"`);
+          }
+          assert.ok(reason.includes(w.groups[0].labelZh), `${w.id} reason must name group 0`);
+          assert.ok(reason.includes(w.groups[1].labelZh), `${w.id} reason must name group 1`);
+          assert.ok(reason.includes(w.groups[2].labelZh), `${w.id} reason must name group 2`);
+          assert.ok(reason.includes('這四個不在同一組'), `${w.id} reason ends clearly`);
+        }
+
+        // 2. Repetition detector & quality gate MUST reject the real Edge degenerate loop
+        const edgeLoop = '自己、自己、自己、他人。他、自己=教授、學習、他人。自、他人。自我=自他人。他, 自他人。他、自他人。他…';
+        const loopCheck = ai.validateTipOutput(edgeLoop, { game: 'wall' });
+        assert.equal(loopCheck.valid, false, 'Degenerate repetition loop from Edge MUST be rejected');
+        assert.equal(loopCheck.reason, 'repetition_loop');
+
+        // > 40% duplicate chars without a 3x chunk
+        const dupText = '我們們我你你你他他他這這這';
+        const dupCheck = ai.validateTipOutput(dupText, { game: 'wall' });
+        assert.equal(dupCheck.valid, false, 'High duplicate character ratio must be rejected');
+        assert.ok(dupCheck.reason === 'high_duplicate_ratio' || dupCheck.reason === 'repetition_loop');
+
+        // Longer than 60 characters in one sentence
+        const tooLongTip = '這是一句故意寫得非常非常長而且完全沒有停下來換行或句號導致整個記憶提示超過六十個中文字元上限的測試用教學提醒文字內容還繼續延伸下去。';
+        const longCheck = ai.validateTipOutput(tooLongTip, { game: 'wall' });
+        assert.equal(longCheck.valid, false, 'Tip longer than 60 chars must be rejected');
+        assert.equal(longCheck.reason, 'too_long');
+
+        // No Chinese in zh-TW
+        const noZhCheck = ai.validateTipOutput('Remember to separate verbs from nouns.', { game: 'wall' });
+        assert.equal(noZhCheck.valid, false);
+        assert.equal(noZhCheck.reason, 'no_chinese');
+
+        // Valid concise tip passes cleanly (stops at first 。 and converts S2T)
+        const goodTip = ai.validateTipOutput('記憶提示：先把动词过去式和日常对话短句分开。\n不要理会第二行。', { game: 'wall' });
+        assert.equal(goodTip.valid, true, 'Good concise tip passes quality gate');
+        assert.equal(goodTip.tip, '先把動詞過去式和日常對話短句分開。');
+
+        // 3. Fallback path when Qwen emits the repetition loop: preserves accurate code reason, falls back tip, records rawOutput + reason
+        ai.qwen.isSupported = () => true;
+        ai.qwen.init = async () => ({ loadMs: 10, device: 'webgpu', dtype: 'q4f16' });
+        ai.qwen.generate = async () => ({
+          text: edgeLoop,
+          elapsedMs: 1200,
+          firstTokenMs: 250,
+          tokenCount: 40,
+          device: 'webgpu',
+          modelKey: '0.5b',
+          modelLabel: 'Qwen 2.5 0.5B',
+        });
+        const w0 = walls[0];
+        const wallFacts = {
+          game: 'wall',
+          selectedItems: ['ate', 'took', "You're welcome", 'eraser'],
+          selectedBreakdown: ai.templates.buildWallBreakdown(w0, ['ate', 'took', "You're welcome", 'eraser']),
+        };
+        const fbRes = await ai.explainMistake(wallFacts, { forceTier: 'qwen' });
+        assert.equal(fbRes.source, 'template', 'Loop output falls back to template tip');
+        assert.equal(fbRes.fellBack, true);
+        assert.equal(fbRes.note, 'repetition_loop');
+        assert.ok(fbRes.why.includes('ate、took') && fbRes.why.includes('這四個不在同一組'), 'Code-generated reason remains intact on fallback');
+        const logged = ai.getLastAttempt();
+        assert.equal(logged.rawOutput, edgeLoop, 'Raw degenerate loop stored in Last AI Attempt');
+        assert.equal(logged.rejectionReason, 'repetition_loop');
+
+        // 4. Opt-in Qwen model switch (0.5B ~467 MB vs 1.5B ~1172 MB)
+        settings.update({ qwenModel: '1.5b' });
+        assert.equal(ai.qwen.getSelectedModel().id, 'onnx-community/Qwen2.5-1.5B-Instruct');
+        assert.equal(ai.qwen.approxSizeMB(), 1172);
+        settings.update({ qwenModel: '0.5b' });
+        assert.equal(ai.qwen.getSelectedModel().id, 'onnx-community/Qwen2.5-0.5B-Instruct');
+        assert.equal(ai.qwen.approxSizeMB(), 467);
+      } finally {
+        ai.qwen.init = origInit;
+        ai.qwen.generate = origGen;
+        ai.qwen.isSupported = origSup;
+        settings.update({ qwenModel: origModel });
+        ai.invalidateDetection();
       }
     });
   });

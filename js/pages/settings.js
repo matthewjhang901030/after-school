@@ -103,6 +103,26 @@
       }, [el('span', { className: 'btn-label', text: opt.label })]);
     });
 
+    // ── Qwen model size selector (opt-in 0.5B vs 1.5B, shows MB before download) ──
+    const currentQwenModel = settings ? (settings.get('qwenModel') || '0.5b') : '0.5b';
+    const qwenModelOptions = [
+      { value: '0.5b', label: t('settings.qwen_model.05b') },
+      { value: '1.5b', label: t('settings.qwen_model.15b') },
+    ];
+    const qwenModelRow = qwenModelOptions.map(function (opt) {
+      return el('button', {
+        type: 'button',
+        className: 'btn ' + (currentQwenModel === opt.value ? 'btn-primary' : 'btn-secondary'),
+        'data-qwen-model': opt.value,
+        onClick: function () {
+          if (settings) settings.update({ qwenModel: opt.value });
+          if (App.ai && App.ai.qwen && typeof App.ai.qwen.destroy === 'function') App.ai.qwen.destroy();
+          if (App.ai && typeof App.ai.invalidateDetection === 'function') App.ai.invalidateDetection();
+          mount(root);
+        },
+      }, [el('span', { className: 'btn-label', text: opt.label })]);
+    });
+
     // ── Periods per day ────────────────────────────────────────
     const currentPeriods = settings ? settings.get('periodsPerDay') : 3;
     const periodsRow = [2, 3, 4].map(function (n) {
@@ -159,6 +179,11 @@
         el('section', { style: 'margin-bottom: var(--space-6);' }, [
           el('h2', { className: 'text-muted text-small', style: 'margin-bottom: var(--space-3);', text: t('settings.ai_engine') }),
           el('div', { style: 'display: flex; flex-wrap: wrap; gap: var(--space-2);' }, aiRow),
+        ]),
+
+        el('section', { style: 'margin-bottom: var(--space-6);' }, [
+          el('h2', { className: 'text-muted text-small', style: 'margin-bottom: var(--space-3);', text: t('settings.qwen_model') }),
+          el('div', { style: 'display: flex; flex-wrap: wrap; gap: var(--space-2);' }, qwenModelRow),
         ]),
 
         el('section', { style: 'display: flex; flex-wrap: wrap; gap: var(--space-2);' }, [
