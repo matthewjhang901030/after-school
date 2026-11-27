@@ -2284,4 +2284,193 @@
       assert.ok(top3Hits >= 5, `Offline fallback ranker beats baseline on same-topic 19-candidate eval set (got ${top3Hits}/30)`);
     });
   });
+
+  // ── M8: 第 13 節課 (Core Horror Typing Game) ─────────────────────────────
+  suite('M8 · 第 13 節課 (Formulas, Data Banks, Per-Letter Typing, Creature & Flow)', ({ test, assert }) => {
+    test('formulas, tense (80 items) & broadcast (40 items) banks, and word-priority ordering match spec 4.3', () => {
+      const Q = window.App.games.class13Questions;
+
+      // Exact Section 4.3.1 formulas
+      assert.equal(Q.periodTargetScore(1), 600);
+      assert.equal(Q.periodTargetScore(2), 800);
+      assert.equal(Q.periodTargetScore(3), 1000);
+      assert.equal(Q.periodTargetScore(5), 1400);
+      assert.equal(Q.creatureSpeed(1), 0.20);
+      assert.equal(Q.creatureSpeed(2), 0.25);
+      assert.equal(Q.creatureSpeed(3), 0.30);
+      assert.equal(Q.clampDistance(13.5), 12.0);
+      assert.equal(Q.clampDistance(-1.2), 0);
+
+      // Content bank minimums (Section 4.6): >= 80 tense, >= 40 broadcast
+      const tense = window.App.data.tense;
+      const broadcast = window.App.data.broadcast;
+      assert.ok(Array.isArray(tense) && tense.length >= 80, 'data/tense.js has at least 80 items');
+      assert.ok(Array.isArray(broadcast) && broadcast.length >= 40, 'data/broadcast.js has at least 40 items');
+      for (const item of tense) {
+        assert.ok(item.base && Array.isArray(item.accepted) && item.accepted.length >= 1 && item.ruleZh, `Valid tense item ${item.id}`);
+      }
+      for (const item of broadcast) {
+        assert.ok(item.lineA && item.lineB && Array.isArray(item.accepted) && item.accepted.length >= 1 && item.ruleZh, `Valid broadcast item ${item.id}`);
+      }
+
+      // Word pool priority: recent wrong -> box 1 -> due -> confusion -> rest
+      const sampleCards = [
+        { id: 'c1', word: 'apple', zh: '蘋果' },
+        { id: 'c2', word: 'banana', zh: '香蕉' },
+        { id: 'c3', word: 'cherry', zh: '櫻桃' },
+        { id: 'c4', word: 'date', zh: '棗子' },
+        { id: 'c5', word: 'elder', zh: '長輩' },
+      ];
+      const pool = Q.buildWordPool(sampleCards, {
+        recentWrongIds: ['c4'],
+        progressMap: { c2: { box: 1, due: '2099-01-01' }, c3: { box: 2, due: '2026-01-01' } },
+        today: '2026-11-28',
+        confusionWords: ['elder'],
+        rng: window.App.random.create('c13-prio'),
+      });
+      assert.equal(pool[0].id, 'c4', 'Recent 7-day wrong word comes first');
+      assert.equal(pool[1].id, 'c2', 'Box 1 card comes second');
+      assert.equal(pool[2].id, 'c3', 'Due card comes third');
+      assert.equal(pool[3].id, 'c5', 'Confusion-pair word comes fourth');
+    });
+
+    test('per-letter validation supports multi-answer alternatives (didn\'t / did not), spaces, Backspace, and wrong-key detection', () => {
+      const Q = window.App.games.class13Questions;
+      const accepted = ["didn't", 'did not'];
+
+      // Path A: typing "did not" with space
+      let typed = '';
+      for (const ch of 'did not') {
+        const r = Q.evaluateKeystroke(typed, ch, accepted);
+        assert.equal(r.accepted, true, `Key "${ch}" accepted along "did not"`);
+        typed = r.nextTyped;
+        if (typed === 'did not') assert.equal(r.completed, true);
+      }
+
+      // Path B: typing "didn't" with apostrophe
+      typed = '';
+      for (const ch of "didn't") {
+        const r = Q.evaluateKeystroke(typed, ch, accepted);
+        assert.equal(r.accepted, true, `Key "${ch}" accepted along "didn't"`);
+        typed = r.nextTyped;
+        if (typed === "didn't") assert.equal(r.completed, true);
+      }
+
+      // Wrong keystroke rejected with expectedNext
+      const bad = Q.evaluateKeystroke('di', 'z', accepted);
+      assert.equal(bad.accepted, false);
+      assert.equal(bad.ignored, false);
+      assert.equal(bad.nextTyped, 'di');
+      assert.equal(bad.expectedNext, 'd');
+
+      // Backspace works cleanly
+      const bs = Q.evaluateKeystroke('di', 'Backspace', accepted);
+      assert.equal(bs.accepted, true);
+      assert.equal(bs.nextTyped, 'd');
+
+      // Mask reflects typed + cursor + blanks
+      const mask = Q.buildAnswerMask('di', accepted);
+      assert.equal(mask[0].state, 'typed');
+      assert.equal(mask[1].state, 'typed');
+      assert.equal(mask[2].state, 'cursor');
+      assert.equal(mask[3].state, 'blank');
+    });
+
+    test('creature SVG scales with distance and inscribes missed words in red ink safely via textContent', () => {
+      const Creature = window.App.games.class13Creature;
+      const ctrl = Creature.create({ maxDistance: 12 });
+      ctrl.update(12.0, []);
+      const g = ctrl.root.querySelector('[data-c13-creature="true"]');
+      const tFar = g.getAttribute('transform');
+
+      ctrl.update(2.0, ['receive', '<script>alert(1)</script>']);
+      const tNear = g.getAttribute('transform');
+      assert.ok(tFar !== tNear, 'Creature SVG transform scales closer as distance decreases');
+      assert.ok(ctrl.root.querySelector('[data-c13-distance="true"]').textContent.includes('2.0'));
+
+      const bodyWords = ctrl.root.querySelector('[data-c13-body-words="true"]');
+      assert.ok(bodyWords.textContent.includes('receive'), 'Missed word written on creature body');
+      assert.equal(ctrl.root.querySelectorAll('script').length, 0, 'Zero HTML/script injection inside SVG');
+    });
+
+    test('第 13 節課 playable loop: distance updates, period clear, timeout -> 補考名單 + Box 1, lose -> end screen, and unmount cleanup', async () => {
+      const game = window.App.games.class13;
+      const attempts = window.App.store.attempts;
+      const leitner = window.App.store.leitner;
+      const settings = window.App.store.settings;
+      const mountRoot = document.getElementById('test-router-root');
+      const origSafe = settings.get('safeMode');
+
+      try {
+        // Enable safeMode so lose transitions straight to end screen without 600ms delay
+        settings.update({ safeMode: true });
+        const ctrl = game.mount(mountRoot);
+        assert.ok(mountRoot.querySelector('[data-c13-enter="true"]'), 'Start screen renders 進教室 button');
+
+        // Start session (skip countdown for deterministic test)
+        ctrl.startSession({ skipCountdown: true });
+        let st = ctrl.getState();
+        assert.equal(st.phase, 'play');
+        assert.equal(st.period, 1);
+        assert.equal(st.distanceM, 12.0);
+        assert.ok(st.currentQ, 'Question loaded');
+
+        // Wrong keystroke pulls creature closer by 0.3m and records mistyped letter
+        const badChar = st.currentQ.accepted[0][0] === 'z' ? 'q' : 'z';
+        ctrl.handleKey(badChar);
+        st = ctrl.getState();
+        assert.ok(st.distanceM < 12.0, 'Wrong keystroke reduces distance');
+        assert.ok(Object.keys(st.wrongLetterCounts).length >= 1, 'Wrong letter count recorded');
+
+        // Complete the active word -> awards score, pushes creature back (+1.5m capped at 12m), logs correct attempt
+        const firstQ = st.currentQ;
+        const firstAns = firstQ.accepted[0];
+        for (const ch of firstAns) ctrl.handleKey(ch);
+        st = ctrl.getState();
+        assert.ok(st.totalScore >= 100, 'Correct answer awards >= 100 points');
+        assert.equal(st.distanceM, 12.0, 'Correct answer pushes distance back up to 12.0m cap');
+        const logged = attempts.getAll();
+        assert.ok(logged.some((a) => a.source === 'class13' && a.correct === true && a.expected === firstQ.displayAnswer), 'Correct answer logged in as.v1.attempts');
+
+        // Wait briefly for next question, then trigger question timeout -> -2.0m, logged as miss + 補考名單
+        await new Promise((r) => setTimeout(r, 260));
+        st = ctrl.getState();
+        const timedQ = st.currentQ;
+        ctrl.triggerTimeout();
+        st = ctrl.getState();
+        assert.ok(st.distanceM <= 10.0, 'Timeout pulls creature 2.0m closer');
+        assert.equal(st.missedItems.length, 1, 'Missed item added to 補考名單');
+        if (timedQ && timedQ.cardId) {
+          const prog = leitner.get(timedQ.cardId);
+          assert.equal(prog.box, 1, 'Missed card sent to Leitner Box 1');
+          assert.equal(prog.due, window.App.date.todayKey(), 'Missed card due today');
+        }
+
+        // Wait for next question and force distance -> 0 via repeated timeouts -> transitions to End Screen
+        for (let step = 0; step < 6; step++) {
+          await new Promise((r) => setTimeout(r, 450));
+          if (ctrl.getState().phase === 'end') break;
+          ctrl.triggerTimeout();
+        }
+        st = ctrl.getState();
+        assert.equal(st.phase, 'end', 'Reaching 0m ends the game cleanly');
+        assert.ok(mountRoot.querySelector('[data-c13-end="true"]'), 'End screen rendered');
+        assert.ok(mountRoot.querySelector('[data-class13-mistakes="true"]'), '補考名單 rendered on end screen');
+        assert.ok(mountRoot.querySelector('[data-class13-wrong-letters="true"]'), 'Most-mistyped letters rendered');
+        assert.ok(mountRoot.querySelector('[data-class13-ai-explain="true"]'), '請 AI 解釋錯題 button rendered');
+
+        // Unmount cleans up all listeners & timers cleanly
+        game.unmount();
+        assert.equal(window.App.router.hasGuard ? window.App.router.hasGuard() : false, false);
+      } finally {
+        game.unmount();
+        settings.update({ safeMode: origSafe });
+        window.App.store.db.remove('as.v1.attempts');
+        window.App.store.db.remove('as.v1.sessions');
+        window.App.store.db.remove('as.v1.progress');
+        attempts.invalidate();
+        leitner.invalidate();
+      }
+    });
+  });
 })();

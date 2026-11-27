@@ -136,3 +136,59 @@ All handwritten English learning content authored for **放學後 After School**
 - `data/tense.js` (M8): 80 verb-form items.
 - `data/broadcast.js` (M10): 40 dialogue cloze items.
 - `data/class-rules.js` (M10): 8 class-rule gacha cards.
+
+---
+
+## M8 Content Banks for Owner Review
+
+### 1. Verb-Form Grammar Bank (`data/tense.js` — 80 items)
+
+- **Irregular past tense (`t-01`–`t-30`, 30 items):** `go→went`, `eat→ate`, `see→saw`, `take→took`, `write→wrote`, `give→gave`, `come→came`, `make→made`, `buy→bought`, `bring→brought`, `think→thought`, `teach→taught`, `catch→caught`, `find→found`, `know→knew`, `tell→told`, `say→said`, `keep→kept`, `leave→left`, `feel→felt`, `meet→met`, `run→ran`, `begin→began`, `drink→drank`, `sing→sang`, `swim→swam`, `break→broke`, `speak→spoke`, `drive→drove`, `ride→rode`.
+- **Past participle (`t-31`–`t-50`, 20 items):** `go→gone`, `eat→eaten`, `see→seen`, `take→taken`, `write→written`, `give→given`, `know→known`, `break→broken`, `choose→chosen`, `speak→spoken`, `drive→driven`, `ride→ridden`, `drink→drunk`, `sing→sung`, `swim→swum`, `begin→begun`, `fly→flown`, `grow→grown`, `show→shown`, `do→done`.
+- **Third-person singular (`t-51`–`t-65`, 15 items):** `study→studies`, `carry→carries`, `try→tries`, `fly→flies`, `worry→worries`, `watch→watches`, `wash→washes`, `teach→teaches`, `finish→finishes`, `miss→misses`, `fix→fixes`, `go→goes`, `do→does`, `have→has`, `play→plays`.
+- **Present participle `-ing` (`t-66`–`t-80`, 15 items):** `make→making`, `write→writing`, `come→coming`, `take→taking`, `have→having`, `run→running`, `swim→swimming`, `sit→sitting`, `stop→stopping`, `plan→planning`, `begin→beginning`, `lie→lying`, `die→dying`, `study→studying`, `shop→shopping`.
+
+### 2. Broadcast Dialogue Cloze Bank (`data/broadcast.js` — 40 items)
+
+| ID | Line A | Line B (Cloze) | Accepted Answers |
+|---|---|---|---|
+| `b-01` | Where were you last night? | I ___ at home studying. | `was` |
+| `b-02` | Did you finish the report? | No, I ___ finish it yet. | `didn't`, `did not` |
+| `b-03` | What is Mia doing now? | She is ___ a letter to her aunt. | `writing` |
+| `b-04` | How do you go to campus? | I usually ___ the bus. | `take` |
+| `b-05` | Have you ever been to Tainan? | Yes, I ___ there twice. | `have been`, `went` |
+| `b-06` | Why is the floor wet? | Someone ___ a cup of water. | `dropped`, `spilled` |
+| `b-07` | Are you free this Friday? | Sorry, I ___ to work late. | `have` |
+| `b-08` | Whose umbrella is this? | It belongs ___ Ken. | `to` |
+| `b-09` | Can you speak Japanese? | Yes, I ___ speak a little. | `can` |
+| `b-10` | Where did Leo go? | He ___ to the library. | `went` |
+| `b-11` | Thank you for helping me. | You are ___. | `welcome` |
+| `b-12` | What time does class start? | It ___ at nine sharp. | `starts`, `begins` |
+| `b-13` | Is there any milk left? | No, there ___ any left. | `isn't`, `is not` |
+| `b-14` | How many books did you borrow? | I ___ three books today. | `borrowed` |
+| `b-15` | Do you want tea or coffee? | I ___ like hot tea, please. | `would` |
+| `b-16` | Why did you bring a coat? | Because it is ___ outside. | `cold`, `freezing` |
+| `b-17` | Where were they at noon? | They ___ eating lunch together. | `were` |
+| `b-18` | Did Emma call you back? | Yes, she ___ me an hour ago. | `called` |
+| `b-19` | What will you do tomorrow? | I ___ visit my grandparents. | `will` |
+| `b-20` | Excuse me, how much is this pen? | It ___ fifty dollars. | `costs`, `is` |
+| `b-21` | Why is Sam smiling so much? | He ___ the math exam. | `passed` |
+| `b-22` | Could you open the window? | Sure, no ___. | `problem` |
+| `b-23` | How long have you lived here? | I have lived here ___ five years. | `for` |
+| `b-24` | When is your birthday? | It is ___ October. | `in` |
+| `b-25` | When does the store open? | It opens ___ Monday morning. | `on` |
+| `b-26` | Is your sister taller than you? | Yes, she is taller ___ me. | `than` |
+| `b-27` | What is the ___ river in Taiwan? | The Zhuoshui River is the longest. | `longest` |
+| `b-28` | Did you remember to lock the door? | Oh no, I ___ to lock it. | `forgot` |
+| `b-29` | Who broke this glass? | The cat ___ it off the table. | `knocked`, `pushed` |
+| `b-30` | Would you mind turning down the music? | Not at ___. | `all` |
+| `b-31` | What did you have for breakfast? | I ___ a sandwich and milk. | `had`, `ate` |
+| `b-32` | Where is my notebook? | Look, it is ___ the desk. | `on` |
+| `b-33` | Are you ready to order? | Yes, I will ___ the beef noodles. | `have`, `take`, `order` |
+| `b-34` | Why are you late today? | I ___ the early train. | `missed` |
+| `b-35` | Do you know where Ben lives? | He ___ near the night market. | `lives` |
+| `b-36` | Can I borrow your eraser? | Here you ___. | `are` |
+| `b-37` | How was the movie last weekend? | It ___ really exciting. | `was` |
+| `b-38` | You look tired today. | I did not ___ well last night. | `sleep` |
+| `b-39` | Where can I buy fresh fruit? | You can buy some ___ the market. | `at`, `in` |
+| `b-40` | See you tomorrow morning. | Take ___, see you then. | `care` |

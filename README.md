@@ -19,7 +19,7 @@ Integrated browser-only English learning website for Taiwanese university studen
 
 ## Project Status
 
-- **Current milestone:** M7 Complete (Design system, app shell, `file://`-safe lazy loader, i18n zh-TW/en, storage + IndexedDB batch helpers, flashcards, Leitner 5-box review, attempt log, onboarding, shared game engine, 四格分類牆 with 12 validated walls, 3-tier browser AI layer + Feature A 錯題解說, and 你說我猜 Taboo-style semantic guessing game with MiniLM embeddings + offline keyword-overlap fallback) — ready for M8.
+- **Current milestone:** M8 Complete (on branch `overnight`: M0–M7 plus M8 第 13 節課 core with 80 curated verb-form items in `data/tense.js`, 40 broadcast dialogue items in `data/broadcast.js`, per-letter multi-answer typing, distance/speed clock, scaling creature SVG with missed words in red ink, win/lose/endless, pause on tab hide, and end-screen 補考名單 + AI explain + Guess handoff) — ready for M9.
 - **Specification:** `docs/spec/part01.md` – `docs/spec/part11.md`
 - **Data audit & curation log:** `docs/DATA.md`
 - **Authored English content for review:** `docs/CONTENT.md`

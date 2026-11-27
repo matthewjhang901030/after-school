@@ -7,7 +7,7 @@
   'use strict';
 
   const App = (window.App = window.App || {});
-  App.milestone = 'M7';
+  App.milestone = 'M8';
 
   // ─── 1. Database migrations ───────────────────────────────────────────────
   if (App.store && App.store.db) {
@@ -171,7 +171,16 @@
       getPage: function () { return App.pages && App.pages.gamesHub; },
     });
     App.router.registerLazy('#/games/class13', {
-      scripts: ['js/ui/keyboard.js', 'js/games/engine.js', 'js/games/class13/index.js'],
+      styles: ['css/pages/class13.css'],
+      scripts: [
+        'data/tense.js',
+        'data/broadcast.js',
+        'js/ui/keyboard.js',
+        'js/games/engine.js',
+        'js/games/class13/questions.js',
+        'js/games/class13/creature.js',
+        'js/games/class13/index.js',
+      ],
       getPage: function () { return App.games && App.games.class13; },
     });
     App.router.registerLazy('#/games/guess', {

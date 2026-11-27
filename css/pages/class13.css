@@ -1,0 +1,338 @@
+/* ============================================================
+   第 13 節課 (The 13th Period) — M8 stationery + dim classroom styles
+   Zero CSS gradients, z-index <= 100, reduced-motion & safeMode aware
+   ============================================================ */
+
+.c13-start-hero {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
+  box-shadow: var(--shadow-1);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.c13-broadcast-quote {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border-left: 3px solid var(--wrong);
+  background: var(--bg);
+  font-family: var(--font-zh-card);
+  color: var(--ink);
+}
+
+.c13-rule-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.c13-meta-pill,
+.c13-pill {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.c13-combo-pill {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--highlight);
+  color: var(--on-highlight);
+}
+
+.c13-warning-box {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--wrong);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+}
+
+.c13-warning-title {
+  font-weight: 700;
+  color: var(--wrong);
+  font-size: var(--text-small);
+}
+
+.c13-check-row {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+}
+
+.c13-deck-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 340px;
+}
+
+.c13-start-actions,
+.c13-end-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.c13-topbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.c13-topbar-left {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.c13-stage {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+@keyframes c13-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+
+.c13-stage.is-shaking {
+  animation: c13-shake 200ms ease-in-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .c13-stage.is-shaking {
+    animation: none;
+  }
+}
+
+.c13-corridor-wrap {
+  background: #181512;
+  border: 1.5px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  padding-bottom: var(--space-2);
+}
+
+.c13-corridor-wrap.is-danger {
+  border-color: var(--wrong);
+}
+
+.c13-corridor-svg {
+  display: block;
+  width: 100%;
+  max-height: 150px;
+}
+
+.c13-dist-bar-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3) 0;
+}
+
+.c13-dist-track {
+  flex: 1;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: #3A352F;
+  overflow: hidden;
+}
+
+.c13-dist-fill {
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--tab-grammar);
+}
+
+.c13-dist-fill.is-danger {
+  background: var(--wrong);
+}
+
+.c13-dist-value {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: #EDE6D9;
+  min-width: 56px;
+  text-align: right;
+}
+
+.c13-projector {
+  background: var(--surface);
+  border: 1.5px solid var(--ink);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  text-align: center;
+}
+
+.c13-projector.is-hard {
+  border-color: var(--wrong);
+}
+
+.c13-qtimer-track {
+  width: 100%;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--line);
+  overflow: hidden;
+}
+
+.c13-qtimer-fill {
+  height: 100%;
+  background: var(--tab-vocab);
+}
+
+.c13-proj-head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+}
+
+.c13-hard-tag {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--wrong);
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--wrong);
+}
+
+.c13-proj-sub {
+  font-size: var(--text-small);
+  color: var(--muted);
+}
+
+.c13-proj-main {
+  font-family: var(--font-zh-card);
+  font-size: clamp(22px, 3.5vw, 30px);
+  font-weight: 700;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.c13-slots {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin: var(--space-2) 0;
+  font-family: var(--font-mono);
+  font-size: clamp(20px, 3vw, 26px);
+  font-weight: 700;
+}
+
+.c13-slot {
+  min-width: 24px;
+  padding: 2px 4px;
+  border-bottom: 2px solid var(--line-strong);
+  text-align: center;
+}
+
+.c13-slot--typed {
+  color: var(--correct);
+  border-bottom-color: var(--correct);
+}
+
+.c13-slot--cursor {
+  color: var(--muted);
+  border-bottom-color: var(--ink);
+  background: var(--bg);
+}
+
+.c13-slot--space {
+  min-width: 16px;
+  border-bottom-color: transparent;
+}
+
+.c13-feedback {
+  min-height: 22px;
+  font-size: var(--text-small);
+}
+
+.c13-feedback--ok {
+  color: var(--correct);
+  font-weight: 700;
+}
+
+.c13-feedback--bad {
+  color: var(--wrong);
+  font-weight: 700;
+}
+
+.c13-blackout {
+  min-height: 60vh;
+  background: #0A0908;
+  border-radius: var(--radius-md);
+}
+
+.c13-end-hero {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
+  text-align: center;
+  margin-bottom: var(--space-4);
+}
+
+.c13-stamp--fail {
+  border-color: var(--wrong);
+  color: var(--wrong);
+}
+
+.c13-makeup-section,
+.c13-letters-section {
+  margin-bottom: var(--space-4);
+}
+
+.c13-makeup-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.c13-makeup-item {
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.c13-letter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.c13-letter-chip {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--wrong);
+  color: var(--wrong);
+  background: var(--surface);
+}

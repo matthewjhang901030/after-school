@@ -203,3 +203,14 @@ Every choice not fully specified by `docs/spec/part01.md`–`part11.md`, or reso
     - **Shared attempts & Review loop:** every finished round logs to `as.v1.attempts` (`source: 'guess'`) and updates `App.store.leitner.recordGameResult(cardId, 'guess', won)`, sending missed cards to Box 1 due today so they surface in Today's Review.
     - **Evaluation benchmark (`tests/guess-eval.js`):** Added a 30-item classic-script evaluation set of concrete words from `english-2000-data.js` with natural student clues (all 30 validated against `App.store.cards` and `guessChecks.validateDescription`). On hard 19-candidate same-topic sets, the offline keyword-overlap fallback achieves `5/30` (`16.7%`) top-3 accuracy because same-topic distractors share chapter cues and many builtin cards lack real examples; semantic ranking therefore relies primarily on `Xenova/all-MiniLM-L6-v2` embeddings with the offline ranker serving strictly as a playable no-network fallback.
     - All M7 game & embedding scripts (`js/ai/embed.js`, `js/games/guess/checks.js`, `js/games/guess/index.js`, `css/pages/guess.css`) lazy-load on `#/games/guess`, keeping initial-load `js/` well under `300 KB`.
+
+---
+
+## M8 — 第 13 節課 (Core Horror Typing Game)
+
+33. **Modular 第 13 節課 core (`js/games/class13/*`, `data/tense.js`, `data/broadcast.js`)**
+    - Implemented exact Section 4.3.1 core rules: `90 s` per period, target score `600 + 200 × (period − 1)`, distance starting at `12.0 m` (`+1.5 m` correct capped at `12 m`, `−0.3 m` wrong keystroke, `−2.0 m` missed question at `8 s` timeout), creature speed `0.20 + 0.05 × (period − 1)` m/s, lose at `0 m`, win after Period 5 (with endless mode continuation).
+    - Authored two classic-script content banks (`data/tense.js` with **80** verb-form items across irregular past, past participle, 3rd-person `-s`, and `-ing`; `data/broadcast.js` with **40** everyday dialogue cloze items) and documented them in `docs/CONTENT.md` for owner review.
+    - Per-letter prefix validation (`App.games.class13Questions.evaluateKeystroke`) checks every keystroke against all accepted answers simultaneously (e.g. `didn't` and `did not`, multi-word answers with spaces, case-insensitive) and records mistyped letters for the end-screen breakdown and `as.v1.attempts`.
+    - `App.games.class13Creature` renders the corridor window and scaling silhouette via `document.createElementNS` (zero `innerHTML`, zero CSS gradients) with the learner's missed words written onto the creature's body in red ink.
+    - Included content warning + dismiss persistence (`settings.class13WarningDismissed`) and `safeMode` toggle right on the start screen; all M8 scripts and banks lazy-load on `#/games/class13`. M10 features (Web Audio footsteps/heartbeat, key rot lock cap 3, scrambled keyboard, supply crates, gacha class-rules) remain cleanly staged for M10.
