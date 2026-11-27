@@ -2260,5 +2260,28 @@
         leitner.invalidate();
       }
     });
+
+    test('30-item guess-eval.js benchmark set validates cleanly against cards and rule checker', () => {
+      const evalSet = window.App.data && window.App.data.guessEval;
+      const cards = window.App.store.cards;
+      const allCards = cards.getAll({ includeHidden: false });
+      const checks = window.App.games.guessChecks;
+      const embed = window.App.ai.embed;
+
+      assert.ok(Array.isArray(evalSet) && evalSet.length === 30, 'guess-eval.js contains 30 items');
+      let top3Hits = 0;
+      const rng = window.App.random.create('guess-eval-v1');
+      for (const item of evalSet) {
+        const card = cards.findByWord(item.word);
+        assert.ok(card && !card.hidden, `Eval word "${item.word}" exists in active cards`);
+        const valid = checks.validateDescription(item.description, item.word, [], []);
+        assert.equal(valid.ok, true, `Eval description for "${item.word}" passes rule checks (${valid.reason})`);
+        const cands = checks.buildCandidates(card, allCards, { distractorCount: 18, rng });
+        const ranked = embed.rankOffline(item.description, cands).ranked;
+        const pos = ranked.findIndex((r) => r.card.id === card.id);
+        if (pos >= 0 && pos < 3) top3Hits++;
+      }
+      assert.ok(top3Hits >= 5, `Offline fallback ranker beats baseline on same-topic 19-candidate eval set (got ${top3Hits}/30)`);
+    });
   });
 })();
