@@ -146,7 +146,9 @@
     'ai.source.template':       '離線範本',
     'ai.downloading':           '正在下載 AI 模型（{mb} MB）...',
     'ai.download_done':         'AI 模型已就緒。',
-    'ai.download_error':        '模型下載中斷，已改用離線題庫。',
+    'ai.download_error':        '模型下載中斷，已改用離線範本。',
+    'ai.load_error':            '模型載入失敗（可能是記憶體或 WebGPU 限制），已改用離線範本解說。',
+    'ai.load_error_15b':        '模型載入失敗（1.5B 記憶體需求較高），已自動切回 0.5B 供下次使用，本次改顯示離線範本。',
 
     // ── Settings ───────────────────────────────────────────────────────────
     'settings.title':           '設定',
@@ -168,7 +170,7 @@
     'settings.ai_engine.tpl':   '離線範本',
     'settings.qwen_model':      'Qwen 模型選擇（下載前顯示大小）',
     'settings.qwen_model.05b':  'Qwen 2.5 0.5B（預設 · 約 467 MB）',
-    'settings.qwen_model.15b':  'Qwen 2.5 1.5B（品質較佳 · 約 1,172 MB）',
+    'settings.qwen_model.15b':  'Qwen 2.5 1.5B（實驗性，部分電腦無法載入 · 約 1,172 MB）',
     'settings.storage':         '儲存空間',
     'settings.export':          '匯出資料',
     'settings.import':          '匯入資料',

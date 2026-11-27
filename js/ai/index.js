@@ -15,7 +15,19 @@
 
   const FIRST_TOKEN_TIMEOUT_MS = 20000;
   const FEATURE_A_MAX_TOKENS = 60;
+  const MAX_TIP_CHARS = 40;
   const LAST_ATTEMPT_KEY = 'as.v1.ai.lastAttempt';
+
+  /** Instruction phrases that indicate the model echoed prompt directions. */
+  const ECHO_WORDS = [
+    '字內', '字以內', '簡潔', '繁體', '簡體', '一句', '記憶提示', '輸出', '格式',
+  ];
+
+  /** Fixed instructional & few-shot phrases to guard against 4+ char copy-paste echoing. */
+  const PROMPT_ECHO_CORPUS = [
+    '請幫學生記住', '為什麼不同組', '看詞性就能分開', '兩者用法不同',
+    '好朋友到最後都在', '連成一組唸兩次', '背景', '直接對比',
+  ];
 
   let _cachedStatus = null;
   let _lastAttempt = null;
@@ -268,8 +280,28 @@
   }
 
   /**
-   * Build multi-turn few-shot chat messages asking Qwen for ONLY ONE short 記憶提示
-   * (max ~35–40 Chinese characters) given the code-generated 錯誤原因 as context.
+   * Pick ONE specific cross-group word pair from wall facts so small models
+   * have a concrete, focused comparison task.
+   * @param {Object} facts
+   * @returns {{ wordA: string, wordB: string }|null}
+   */
+  function pickFocusPair(facts) {
+    if (!facts || facts.game !== 'wall') return null;
+    const bd = Array.isArray(facts.selectedBreakdown) ? facts.selectedBreakdown : [];
+    if (bd.length >= 2 && bd[0].items && bd[0].items.length && bd[1].items && bd[1].items.length) {
+      return { wordA: bd[0].items[0], wordB: bd[1].items[0] };
+    }
+    const sel = Array.isArray(facts.selectedItems) ? facts.selectedItems : [];
+    if (sel.length >= 2) {
+      return { wordA: sel[0], wordB: sel[sel.length - 1] };
+    }
+    return null;
+  }
+
+  /**
+   * Build multi-turn few-shot chat messages asking Qwen for a tip about ONE
+   * specific word pair (or target word) given the code-generated 錯誤原因.
+   * Length limit is enforced strictly in code (MAX_TIP_CHARS = 40), NOT in prompt text.
    * @param {string} reasonText
    * @param {Object} facts
    * @param {{ language?: string }} [opts]
@@ -279,40 +311,221 @@
     const o = opts || {};
     const lang = o.language || (App.i18n ? App.i18n.lang() : 'zh-TW');
     const isEn = lang === 'en';
+    const pair = pickFocusPair(facts);
 
     if (isEn) {
-      const sysEn = 'You are an English tutor. Given the mistake reason, write ONLY ONE short memory tip (under 15 words). End with a period. No labels.';
+      const sysEn = 'You help university students remember English word differences. Reply in plain English.';
+      if (facts && facts.game === 'wall' && pair) {
+        return [
+          { role: 'system', content: sysEn },
+          { role: 'user', content: 'Reason: spoon, fork, knife (Tableware); cut (Same base and past form). These four do not belong to the same group.\nHelp the student remember why spoon and cut are in different groups:' },
+          { role: 'assistant', content: 'spoon is a tableware noun, while cut is a verb.' },
+          { role: 'user', content: 'Reason: apple, banana, grape (Fruits); may (Modal verbs). These four do not belong to the same group.\nHelp the student remember why apple and may are in different groups:' },
+          { role: 'assistant', content: 'apple is a fruit noun, while may is a modal verb.' },
+          { role: 'user', content: `Reason: ${reasonText}\nHelp the student remember why ${pair.wordA} and ${pair.wordB} are in different groups:` },
+        ];
+      }
+      const target = (facts && (facts.expected || facts.word)) || 'this word';
       return [
         { role: 'system', content: sysEn },
-        { role: 'user', content: 'Reason: spoon, fork, knife (Tableware); cut (Same base and past form). These four do not belong to the same group.' },
-        { role: 'assistant', content: 'Check part of speech first so action verbs like cut do not mix with nouns.' },
-        { role: 'user', content: 'Reason: The correct spelling is "receive", not "recieve".' },
-        { role: 'assistant', content: 'Remember the rule i before e, except right after c in receive.' },
-        { role: 'user', content: `Reason: ${reasonText}` },
+        { role: 'user', content: 'Reason: The correct spelling is "friend", not "freind".\nHelp the student remember friend:' },
+        { role: 'assistant', content: 'Remember friend ends with end: fri-end.' },
+        { role: 'user', content: `Reason: ${reasonText}\nHelp the student remember ${target}:` },
       ];
     }
 
-    const sysZh = 'You are an English tutor for Taiwanese students. Given the mistake reason, write ONLY ONE short memory tip in Traditional Chinese (under 35 characters). End with 。 No labels, no markdown, no extra sentences.';
+    const sysZh = 'You help Taiwanese students remember English word differences. Reply naturally in Traditional Chinese.';
 
-    if (facts && facts.game === 'wall') {
+    if (facts && facts.game === 'wall' && pair) {
       return [
         { role: 'system', content: sysZh },
-        { role: 'user', content: '錯誤原因：ate、took 是不規則過去式；You\'re welcome 是回應「謝謝」；eraser 是書包文具。這四個不在同一組。' },
-        { role: 'assistant', content: '先把動詞過去式和日常對話短句分開，就不會被單字混淆。' },
-        { role: 'user', content: '錯誤原因：spoon、fork、knife 是常見餐具；cut 是三態同形動詞。這四個不在同一組。' },
-        { role: 'assistant', content: '遇到像 cut 這種多義字，先看詞性是不是動詞再分類。' },
-        { role: 'user', content: `錯誤原因：${reasonText}` },
+        {
+          role: 'user',
+          content: '背景：spoon、fork、knife 是常見餐具；cut 是三態同形動詞。這四個不在同一組。\n幫學生記住 spoon 和 cut 為什麼不同組：',
+        },
+        {
+          role: 'assistant',
+          content: 'spoon 是餐具名詞，cut 是動作動詞，看詞性就能分開。',
+        },
+        {
+          role: 'user',
+          content: '背景：apple、banana、grape 是常見水果；may 是情態助動詞。這四個不在同一組。\n幫學生記住 apple 和 may 為什麼不同組：',
+        },
+        {
+          role: 'assistant',
+          content: 'apple 是水果，may 在文法裡是助動詞，兩者用法不同。',
+        },
+        {
+          role: 'user',
+          content: `背景：${reasonText}\n幫學生記住 ${pair.wordA} 和 ${pair.wordB} 為什麼不同組：`,
+        },
       ];
     }
 
+    const targetWord = (facts && (facts.expected || facts.word)) || '這個字';
     return [
       { role: 'system', content: sysZh },
-      { role: 'user', content: '錯誤原因：正確拼法是「friend」（朋友），不是「freind」。' },
-      { role: 'assistant', content: '把 friend 記成 fri-end（朋友到最後都在），就不容易拼反。' },
-      { role: 'user', content: '錯誤原因：這題需要的正確詞形是「ate」，而不是「eated」。' },
-      { role: 'assistant', content: '把 eat 和不規則過去式 ate 連成一組口訣唸兩次。' },
-      { role: 'user', content: `錯誤原因：${reasonText}` },
+      {
+        role: 'user',
+        content: '背景：正確拼法是「friend」（朋友），不是「freind」。\n幫學生記住 friend：',
+      },
+      {
+        role: 'assistant',
+        content: '把 friend 拆成 fri-end，朋友到最後都在。',
+      },
+      {
+        role: 'user',
+        content: '背景：這題需要的正確詞形是「ate」，而不是「eated」。\n幫學生記住 ate：',
+      },
+      {
+        role: 'assistant',
+        content: 'eat 的過去式是不規則的 ate，兩字連起來唸。',
+      },
+      {
+        role: 'user',
+        content: `背景：${reasonText}\n幫學生記住 ${targetWord}：`,
+      },
     ];
+  }
+
+  /**
+   * Detect prompt echoing:
+   * - Contains instruction words (字內, 字以內, 簡潔, 繁體, 簡體, 一句, 記憶提示, 輸出, 格式)
+   * - Shares 4+ consecutive characters with instructional/few-shot prompt strings
+   * @param {string} text
+   * @returns {boolean}
+   */
+  function detectPromptEcho(text) {
+    const clean = String(text || '').replace(/\s+/g, '');
+    if (!clean) return false;
+    for (const w of ECHO_WORDS) {
+      if (clean.includes(w)) return true;
+    }
+    const stripped = clean.replace(/[，。、；：！？,.;:!?'"「」『』“”()（）]/g, '');
+    for (const phrase of PROMPT_ECHO_CORPUS) {
+      const pClean = phrase.replace(/[，。、；：！？,.;:!?'"「」『』“”()（）\s]/g, '');
+      if (pClean.length < 4) continue;
+      for (let i = 0; i <= pClean.length - 4; i++) {
+        const sub = pClean.slice(i, i + 4);
+        if (stripped.includes(sub)) return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Extract relevance anchors (selected English words + group keywords from facts)
+   * so we can verify the AI tip actually talks about the learner's mistake.
+   * @param {Object} facts
+   * @returns {{ enTokens: string[], zhKeywords: string[] }}
+   */
+  function extractRelevanceAnchors(facts) {
+    const enTokens = new Set();
+    const zhKeywords = new Set();
+    if (!facts || typeof facts !== 'object') return { enTokens: [], zhKeywords: [] };
+
+    const addEn = (str) => {
+      const raw = String(str || '').trim().toLowerCase();
+      if (!raw) return;
+      enTokens.add(raw);
+      for (const tok of raw.split(/[^a-z']+/).filter((w) => w.length >= 2)) {
+        enTokens.add(tok);
+      }
+    };
+
+    const addZh = (str) => {
+      const cleaned = String(str || '').replace(/[^\u4e00-\u9fff]/g, '');
+      if (cleaned.length >= 2) {
+        zhKeywords.add(cleaned);
+        const stop = new Set(['常見', '常用', '基本', '一般', '不同', '同一', '這個', '這四']);
+        for (let i = 0; i <= cleaned.length - 2; i++) {
+          const bi = cleaned.slice(i, i + 2);
+          if (!stop.has(bi)) zhKeywords.add(bi);
+        }
+      }
+    };
+
+    if (facts.word) addEn(facts.word);
+    if (facts.expected) addEn(facts.expected);
+    if (facts.userAnswer) addEn(facts.userAnswer);
+    if (facts.meaningZh) addZh(facts.meaningZh);
+    if (Array.isArray(facts.wrongLetters)) {
+      const pairStr = facts.wrongLetters.join('').toLowerCase();
+      if (pairStr.length >= 2) enTokens.add(pairStr);
+    }
+
+    if (Array.isArray(facts.selectedItems)) {
+      for (const it of facts.selectedItems) addEn(it);
+    }
+    if (Array.isArray(facts.cardMeanings)) {
+      for (const m of facts.cardMeanings) {
+        if (m && m.word) addEn(m.word);
+        if (m && m.zh) addZh(m.zh);
+      }
+    }
+    if (Array.isArray(facts.selectedBreakdown)) {
+      const skillHints = {
+        vocab: ['單字', '名詞', '字義', '主題'],
+        grammar: ['文法', '動詞', '詞性', '詞形', '時態', '片語'],
+        dialogue: ['對話', '短句', '口語', '回應', '用語'],
+      };
+      for (const b of facts.selectedBreakdown) {
+        if (!b) continue;
+        if (b.label) addEn(b.label);
+        if (b.labelZh) addZh(b.labelZh);
+        if (b.skill && skillHints[b.skill]) {
+          for (const h of skillHints[b.skill]) zhKeywords.add(h);
+        }
+      }
+    }
+
+    return {
+      enTokens: Array.from(enTokens),
+      zhKeywords: Array.from(zhKeywords),
+    };
+  }
+
+  /**
+   * Check whether a tip mentions at least one selected English word or group keyword.
+   * @param {string} tip
+   * @param {Object} facts
+   * @returns {boolean}
+   */
+  function isRelevantTip(tip, facts) {
+    if (!facts || typeof facts !== 'object') return true;
+    const { enTokens, zhKeywords } = extractRelevanceAnchors(facts);
+    if (!enTokens.length && !zhKeywords.length) return true;
+
+    const lower = String(tip || '').toLowerCase();
+    for (const en of enTokens) {
+      const esc = en.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (new RegExp(`(^|[^a-z])${esc}($|[^a-z])`, 'i').test(lower)) return true;
+    }
+    for (const zh of zhKeywords) {
+      if (tip.includes(zh)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Classify an initialization error into 'load_error' (WASM Aborted/OOM/WebGPU session)
+   * vs 'download_error' (network/fetch/HTTP failure before cache).
+   * @param {Error|string} err
+   * @param {{ cachedBefore?: boolean }} [opts]
+   * @returns {'load_error'|'download_error'}
+   */
+  function classifyInitError(err, opts) {
+    const msg = err && err.message ? String(err.message) : String(err || '');
+    if (/(aborted\s*\(|sassertions|out of memory|\boom\b|allocation|memory|wasm|webgpu|shader|buffer|session|onnx|invalid model|protobuf)/i.test(msg)) {
+      return 'load_error';
+    }
+    if (/(failed to fetch|networkerror|err_internet|err_connection|timeout|http\s*[45]\d\d|offline|cors|load resource)/i.test(msg)) {
+      return 'download_error';
+    }
+    if (opts && opts.cachedBefore) {
+      return 'load_error';
+    }
+    return 'load_error';
   }
 
   /**
@@ -361,9 +574,14 @@
 
   /**
    * Quality gate for a single-sentence AI 記憶提示 (tip).
-   * Cleans markdown/quotes/label, stops at first newline or 。, converts S2T (in zh-TW),
-   * and rejects if: empty/too_short, refusal_or_code, repetition_loop, high_duplicate_ratio,
-   * longer than 60 chars, or no Chinese (in zh-TW).
+   * Enforces:
+   * 1. refusal_or_code
+   * 2. prompt_echo (instruction words or 4+ char overlap with prompt/few-shot text)
+   * 3. no_chinese (in zh-TW)
+   * 4. repetition_loop / high_duplicate_ratio
+   * 5. too_short (< 5 chars) / too_long (> 40 chars in code)
+   * 6. off_topic (must mention at least one selected English word or group keyword)
+   * 7. contradicts_facts
    * @param {string} raw
    * @param {Object} [facts]
    * @param {{ language?: string }} [opts]
@@ -378,23 +596,30 @@
       return { valid: false, reason: 'empty', tip: null };
     }
 
-    // Inspect raw text FIRST for repetition loops across the whole generated output
     const rawTrimmed = raw.trim();
     if (/(error_code|invalid input|@restcontroller|public class|as an ai\b|i cannot\b|無法回答|function\s*\(|import\s+)/i.test(rawTrimmed)) {
       return { valid: false, reason: 'refusal_or_code', tip: null };
     }
+
+    // Check echo on converted text first so Simplified instruction echoes are also caught
+    const rawS2t = requireZh ? s2t(rawTrimmed) : rawTrimmed;
+    if (detectPromptEcho(rawS2t)) {
+      return { valid: false, reason: 'prompt_echo', tip: null };
+    }
+
     if (requireZh) {
       const rawCjk = (rawTrimmed.match(/[\u4e00-\u9fff]/g) || []).length;
       if (rawCjk < 4) {
         return { valid: false, reason: 'no_chinese', tip: null };
       }
     }
+
     const rawRep = detectRepetition(rawTrimmed);
     if (rawRep.repetitive) {
       return { valid: false, reason: rawRep.reason, tip: null };
     }
 
-    // Strip fences/markdown/label, then cut at first newline or 「。」
+    // Strip fences/markdown/quotes, then cut at first newline or 「。」
     let text = rawTrimmed
       .replace(/^```[a-z]*\s*/gim, '')
       .replace(/\s*```$/gim, '')
@@ -402,7 +627,7 @@
 
     const firstLine = text.split(/\r?\n/)[0].trim();
     text = firstLine
-      .replace(/^(?:[-*•\d.)\s]*)(?:記憶提示|記憶法|小提示|提示|建議|口訣|memory\s*tip|tip|hint)\s*[：:]\s*/i, '')
+      .replace(/^(?:[-*•\d.)\s]*)(?:提示|建議|口訣|tip|hint)\s*[：:]\s*/i, '')
       .replace(/^["'「『“”]+|["'」』“”]+$/g, '')
       .trim();
 
@@ -419,10 +644,13 @@
     }
     text = text.replace(/\s+/g, ' ').trim();
 
+    if (detectPromptEcho(text)) {
+      return { valid: false, reason: 'prompt_echo', tip: null };
+    }
     if (text.length < 5) {
       return { valid: false, reason: 'too_short', tip: null };
     }
-    if (text.length > 60) {
+    if (text.length > MAX_TIP_CHARS) {
       return { valid: false, reason: 'too_long', tip: null };
     }
 
@@ -436,6 +664,10 @@
       if (cjkCount < 4) {
         return { valid: false, reason: 'no_chinese', tip: null };
       }
+    }
+
+    if (!isRelevantTip(text, facts)) {
+      return { valid: false, reason: 'off_topic', tip: null };
     }
 
     const factErr = _checkFactConsistency('', text, facts);
@@ -840,9 +1072,11 @@
         ts: Date.now(),
         tier,
         source: 'template',
+        modelKey: ex.modelKey || null,
+        modelLabel: ex.modelLabel || null,
         device: ex.device || null,
         fellBack,
-        rejectionReason: note || null,
+        rejectionReason: ex.rejectionReason || note || null,
         rawOutput: ex.rawOutput || null,
         parsedWhy: tpl.why,
         parsedTip: tpl.tip,
@@ -943,8 +1177,10 @@
     if (tier === 'qwen' && App.ai.qwen) {
       const codeReason = buildDeterministicReason(facts);
       const messages = buildTipMessages(codeReason, facts, { language: lang });
+      const pair = pickFocusPair(facts);
       const modelCfg = App.ai.qwen.getSelectedModel ? App.ai.qwen.getSelectedModel() : { key: '0.5b', label: 'Qwen 2.5 0.5B' };
       const cardExample = facts && facts.game !== 'wall' && facts.cardExample ? String(facts.cardExample).trim() : null;
+      const cacheInfo = App.ai.qwen.inspectCache ? await App.ai.qwen.inspectCache(modelCfg.key) : { cached: false };
       let loadMs = 0;
       let activeDevice = null;
       try {
@@ -956,8 +1192,22 @@
         activeDevice = info.device || null;
         if (typeof o.onDevice === 'function' && activeDevice) o.onDevice(activeDevice, modelCfg.label);
       } catch (err) {
-        if (err && err.name === 'AbortError') return fallback('aborted', { modelKey: modelCfg.key });
-        return fallback('download_error', { modelKey: modelCfg.key, rawOutput: err && err.message ? err.message : null });
+        if (err && err.name === 'AbortError') return fallback('aborted', { modelKey: modelCfg.key, modelLabel: modelCfg.label });
+        const errCode = classifyInitError(err, { cachedBefore: Boolean(cacheInfo && cacheInfo.cached) });
+        // If 1.5B failed to load (e.g. WASM Aborted / GPU memory), auto-switch back to 0.5B for next attempt
+        let switched = false;
+        if (errCode === 'load_error' && modelCfg.key === '1.5b' && App.store && App.store.settings) {
+          App.store.settings.update({ qwenModel: '0.5b' });
+          if (App.ai.qwen.destroy) App.ai.qwen.destroy();
+          invalidateDetection();
+          switched = true;
+        }
+        return fallback(switched ? 'load_error_15b' : errCode, {
+          modelKey: modelCfg.key,
+          modelLabel: modelCfg.label,
+          rejectionReason: errCode,
+          rawOutput: err && err.message ? err.message : String(err),
+        });
       }
 
       genStart = performance.now();
@@ -967,11 +1217,12 @@
 
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
+          const retryPrompt = pair
+            ? (lang === 'en' ? `Compare ${pair.wordA} and ${pair.wordB}:` : `比較 ${pair.wordA} 和 ${pair.wordB} 的差別：`)
+            : (lang === 'en' ? 'Explain the key difference:' : `比較 ${facts.expected || facts.word || '這題'} 的重點：`);
           const runMsgs = attempt === 0
             ? messages
-            : messages.concat([
-              { role: 'user', content: lang === 'en' ? 'One short tip under 15 words.' : '請只寫一句 30 字內的繁體中文記憶提示，以「。」結尾。' },
-            ]);
+            : messages.concat([{ role: 'user', content: retryPrompt }]);
 
           const res = await _runWithFirstTokenTimeout(
             (sig, markFirst) => App.ai.qwen.generate({
@@ -1069,15 +1320,21 @@
     FIRST_TOKEN_TIMEOUT_MS,
     GENERATION_TIMEOUT_MS: FIRST_TOKEN_TIMEOUT_MS,
     FEATURE_A_MAX_TOKENS,
+    MAX_TIP_CHARS,
     FEATURE_A_SCHEMA,
     s2t,
     detect,
     warmUpIfCached,
     getLastAttempt,
+    pickFocusPair,
     buildDeterministicReason,
     buildTipMessages,
     buildFeatureAMessages: buildTipMessages,
     buildFeatureAPrompt,
+    detectPromptEcho,
+    extractRelevanceAnchors,
+    isRelevantTip,
+    classifyInitError,
     detectRepetition,
     validateTipOutput,
     extractJsonObject,

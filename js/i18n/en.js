@@ -147,6 +147,8 @@
     'ai.downloading':           'Downloading AI model ({mb} MB)…',
     'ai.download_done':         'AI model ready.',
     'ai.download_error':        'Model download interrupted. Using offline templates.',
+    'ai.load_error':            'Failed to load the AI model (possibly out of memory). Using offline templates instead.',
+    'ai.load_error_15b':        'Failed to load Qwen 1.5B. Switched back to 0.5B for next time and showing the offline template now.',
 
     // ── Settings ───────────────────────────────────────────────────────────
     'settings.title':           'Settings',
@@ -168,7 +170,7 @@
     'settings.ai_engine.tpl':   'Offline templates',
     'settings.qwen_model':      'Qwen model choice (size shown before download)',
     'settings.qwen_model.05b':  'Qwen 2.5 0.5B (default · ~467 MB)',
-    'settings.qwen_model.15b':  'Qwen 2.5 1.5B (higher quality · ~1,172 MB)',
+    'settings.qwen_model.15b':  'Qwen 2.5 1.5B (experimental, may fail on some PCs · ~1,172 MB)',
     'settings.storage':         'Storage',
     'settings.export':          'Export data',
     'settings.import':          'Import data',

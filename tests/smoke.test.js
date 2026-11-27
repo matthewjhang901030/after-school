@@ -1361,7 +1361,7 @@
           assert.equal(opts.maxNewTokens, 60, 'Qwen caps tip at ~60 new tokens');
           assert.equal(opts.stopOnSentence, true, 'Qwen stops at first newline or 。');
           return {
-            text: '记住 c 后面接 ei 就不会拼反。多余的第二句。',
+            text: '记住 receive 的 c 后面接 ei 就不会拼反。多余的第二句。',
             elapsedMs: 2800,
             firstTokenMs: 420,
             tokenCount: 16,
@@ -1378,7 +1378,7 @@
         assert.equal(rQwen.source, 'qwen');
         assert.equal(rQwen.fellBack, false);
         assert.ok(rQwen.why.includes('receive') && rQwen.why.includes('recieve'), '錯誤原因 is generated deterministically by code');
-        assert.equal(rQwen.tip, '記住 c 後面接 ei 就不會拼反。', 'Tip stops at first 。 and converts S2T');
+        assert.equal(rQwen.tip, '記住 receive 的 c 後面接 ei 就不會拼反。', 'Tip stops at first 。 and converts S2T');
 
         // Unacceptable output (pure English gibberish in zh-TW) retries once, falls back, and records raw output + reason
         let qwenCalls = 0;
@@ -1505,7 +1505,7 @@
           await new Promise((r) => setTimeout(r, 70));
           assert.equal(opts.maxNewTokens, 60, 'Feature A must cap Qwen tip at 60 new tokens');
           return {
-            text: '記住 c 後面接 ei 就不會拼錯。',
+            text: '記住 receive 的 c 後面接 ei。',
             elapsedMs: 90,
             firstTokenMs: 20,
             tokenCount: 10,
@@ -1593,10 +1593,10 @@
         assert.equal(dupCheck.valid, false, 'High duplicate character ratio must be rejected');
         assert.ok(dupCheck.reason === 'high_duplicate_ratio' || dupCheck.reason === 'repetition_loop');
 
-        // Longer than 60 characters in one sentence
-        const tooLongTip = '這是一句故意寫得非常非常長而且完全沒有停下來換行或句號導致整個記憶提示超過六十個中文字元上限的測試用教學提醒文字內容還繼續延伸下去。';
+        // Longer than 40 characters in one sentence -> too_long
+        const tooLongTip = 'saw 是動詞的過去式變化，而 chalk 是教室黑板常用的書寫文具，兩者在日常英文課堂上的用法與分類規則完全不同。';
         const longCheck = ai.validateTipOutput(tooLongTip, { game: 'wall' });
-        assert.equal(longCheck.valid, false, 'Tip longer than 60 chars must be rejected');
+        assert.equal(longCheck.valid, false, 'Tip longer than 40 chars must be rejected');
         assert.equal(longCheck.reason, 'too_long');
 
         // No Chinese in zh-TW
@@ -1605,7 +1605,13 @@
         assert.equal(noZhCheck.reason, 'no_chinese');
 
         // Valid concise tip passes cleanly (stops at first 。 and converts S2T)
-        const goodTip = ai.validateTipOutput('記憶提示：先把动词过去式和日常对话短句分开。\n不要理会第二行。', { game: 'wall' });
+        const w0 = walls[0];
+        const wallFacts = {
+          game: 'wall',
+          selectedItems: ['ate', 'took', "You're welcome", 'eraser'],
+          selectedBreakdown: ai.templates.buildWallBreakdown(w0, ['ate', 'took', "You're welcome", 'eraser']),
+        };
+        const goodTip = ai.validateTipOutput('先把动词过去式和日常对话短句分开。\n不要理会第二行。', wallFacts);
         assert.equal(goodTip.valid, true, 'Good concise tip passes quality gate');
         assert.equal(goodTip.tip, '先把動詞過去式和日常對話短句分開。');
 
@@ -1621,12 +1627,6 @@
           modelKey: '0.5b',
           modelLabel: 'Qwen 2.5 0.5B',
         });
-        const w0 = walls[0];
-        const wallFacts = {
-          game: 'wall',
-          selectedItems: ['ate', 'took', "You're welcome", 'eraser'],
-          selectedBreakdown: ai.templates.buildWallBreakdown(w0, ['ate', 'took', "You're welcome", 'eraser']),
-        };
         const fbRes = await ai.explainMistake(wallFacts, { forceTier: 'qwen' });
         assert.equal(fbRes.source, 'template', 'Loop output falls back to template tip');
         assert.equal(fbRes.fellBack, true);
@@ -1646,6 +1646,90 @@
       } finally {
         ai.qwen.init = origInit;
         ai.qwen.generate = origGen;
+        ai.qwen.isSupported = origSup;
+        settings.update({ qwenModel: origModel });
+        ai.invalidateDetection();
+      }
+    });
+
+    test('echo detector rejects prompt_echo, relevance check rejects off_topic, and WASM Aborted() maps to load_error + 1.5B auto-switch', async () => {
+      const ai = window.App.ai;
+      const walls = window.App.data.walls;
+      const settings = window.App.store.settings;
+      const origModel = settings.get('qwenModel');
+      const origInit = ai.qwen.init;
+      const origInspect = ai.qwen.inspectCache;
+      const origSup = ai.qwen.isSupported;
+
+      const sawChalkFacts = {
+        game: 'wall',
+        selectedItems: ['saw', 'ate', 'chalk', 'eraser'],
+        selectedBreakdown: ai.templates.buildWallBreakdown(walls[0], ['saw', 'ate', 'chalk', 'eraser']),
+      };
+
+      try {
+        // 1. Prompt asks about ONE specific word pair (saw and chalk) with no length-limit instruction words
+        const reason = ai.buildDeterministicReason(sawChalkFacts);
+        const msgs = ai.buildTipMessages(reason, sawChalkFacts, { language: 'zh-TW' });
+        const lastUserMsg = msgs[msgs.length - 1].content;
+        assert.ok(lastUserMsg.includes('saw') && lastUserMsg.includes('chalk'), 'Prompt focuses on one concrete word pair');
+        assert.ok(!/30字|40字|字內|簡潔/.test(msgs.map((m) => m.content).join(' ')), 'Length limits stay in code, not prompt text');
+
+        // 2. Echo detector MUST reject the real Chrome echo string as prompt_echo
+        const echo1 = ai.validateTipOutput('30字內的簡潔體中的素除外。', sawChalkFacts);
+        assert.equal(echo1.valid, false, 'Chrome echoed instruction text must be rejected');
+        assert.equal(echo1.reason, 'prompt_echo');
+
+        // 4+ consecutive char overlap with few-shot prompt text -> prompt_echo
+        const echo2 = ai.validateTipOutput('看詞性就能分開 saw 和 chalk。', sawChalkFacts);
+        assert.equal(echo2.valid, false, '4+ char overlap with few-shot prompt must be rejected as prompt_echo');
+        assert.equal(echo2.reason, 'prompt_echo');
+
+        // 3. Relevance check: tip without any selected word or group keyword -> off_topic
+        const off1 = ai.validateTipOutput('每天早睡早起對身體很有幫助。', sawChalkFacts);
+        assert.equal(off1.valid, false, 'Unrelated tip must be rejected as off_topic');
+        assert.equal(off1.reason, 'off_topic');
+
+        // Relevant tip mentioning selected word or group keyword -> passes
+        const rel1 = ai.validateTipOutput('saw 是動詞過去式，chalk 是教室粉筆。', sawChalkFacts);
+        assert.equal(rel1.valid, true, 'Relevant tip naming saw/chalk passes');
+        const rel2 = ai.validateTipOutput('先把過去式和文具分開就好記。', sawChalkFacts);
+        assert.equal(rel2.valid, true, 'Relevant tip naming group keywords passes');
+
+        // 4. Error classification: WASM Aborted() -> load_error; network fetch -> download_error
+        const abortErr = new Error('Aborted(). Build with -sASSERTIONS for more info.');
+        assert.equal(ai.classifyInitError(abortErr, { cachedBefore: true }), 'load_error');
+        assert.equal(ai.classifyInitError(abortErr, { cachedBefore: false }), 'load_error');
+        assert.equal(ai.classifyInitError(new Error('Failed to fetch'), { cachedBefore: false }), 'download_error');
+
+        // 5. End-to-end 1.5B Aborted() -> load_error, user message says 模型載入失敗, auto-switches back to 0.5b
+        ai.qwen.isSupported = () => true;
+        ai.qwen.inspectCache = async () => ({ cached: true, files: 5, bytes: 1172 * 1024 * 1024, modelKey: '1.5b' });
+        ai.qwen.init = async () => { throw abortErr; };
+        settings.update({ qwenModel: '1.5b' });
+        ai.invalidateDetection();
+
+        const res15b = await ai.explainMistake(sawChalkFacts, { forceTier: 'qwen' });
+        assert.equal(res15b.source, 'template');
+        assert.equal(res15b.fellBack, true);
+        assert.equal(res15b.note, 'load_error_15b');
+        assert.equal(settings.get('qwenModel'), '0.5b', 'Failed 1.5B load must auto-switch back to 0.5b');
+        assert.equal(ai.getLastAttempt().rejectionReason, 'load_error', 'Last AI Attempt records load_error, not download_error');
+
+        // Panel message says 模型載入失敗 (not 模型下載中斷)
+        const panel = window.App.aiPanel.create(sawChalkFacts, { autoStart: false });
+        const origExplain = ai.explainMistake;
+        ai.explainMistake = async () => res15b;
+        try {
+          await panel.start('qwen');
+          assert.ok(panel.root.textContent.includes('模型載入失敗'), 'User message must say 模型載入失敗');
+          assert.ok(!panel.root.textContent.includes('模型下載中斷'), 'User message must not say 模型下載中斷');
+        } finally {
+          ai.explainMistake = origExplain;
+        }
+      } finally {
+        ai.qwen.init = origInit;
+        ai.qwen.inspectCache = origInspect;
         ai.qwen.isSupported = origSup;
         settings.update({ qwenModel: origModel });
         ai.invalidateDetection();

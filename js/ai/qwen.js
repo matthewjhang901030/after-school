@@ -195,12 +195,17 @@
               }
             }
 
-            const plans = hasWebGPU
-              ? [
-                { device: 'webgpu', dtype: 'q4f16' },
-                { device: 'wasm', dtype: 'q4f16' },
-              ]
-              : [{ device: 'wasm', dtype: 'q4f16' }];
+            const isLargeModel = ${JSON.stringify(modelCfg.key === '1.5b')};
+            // 1.5B (1.17 GB single ONNX file) OOMs in 32-bit WASM; require WebGPU without WASM fallback
+            const plans = isLargeModel
+              ? (hasWebGPU ? [{ device: 'webgpu', dtype: 'q4f16' }] : [])
+              : (hasWebGPU
+                ? [{ device: 'webgpu', dtype: 'q4f16' }, { device: 'wasm', dtype: 'q4f16' }]
+                : [{ device: 'wasm', dtype: 'q4f16' }]);
+
+            if (!plans.length) {
+              throw new Error('WebGPU unavailable for 1.5B model (WASM memory insufficient)');
+            }
 
             const onProgress = (p) => {
               if (!p || !p.file) return;

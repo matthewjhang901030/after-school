@@ -52,6 +52,8 @@
     if (note === 'aborted') return _t('ai.note_aborted');
     if (note === 'timeout') return _t('ai.note_timeout');
     if (note === 'download_error') return _t('ai.download_error');
+    if (note === 'load_error' || note === 'out_of_memory') return _t('ai.load_error');
+    if (note === 'load_error_15b') return _t('ai.load_error_15b');
     return _t('ai.note_fallback');
   }
 
