@@ -15,6 +15,8 @@
 
   const FIRST_TOKEN_TIMEOUT_MS = 20000;
   const FEATURE_A_MAX_TOKENS = 30;
+  const RETRY_TEMPERATURES = [0.3, 0.6, 0.8];
+  const RETRY_BUDGET_MS = 4000;
   const SENTENCE_MIN_WORDS = 4;
   const SENTENCE_MAX_WORDS = 14;
   const MAX_TIP_CHARS = 40;
@@ -96,6 +98,10 @@
     ['understand', 'understands', 'understood', 'understanding'],
     ['have', 'has', 'had', 'having'],
     ['do', 'does', 'did', 'done', 'doing'],
+    ['can', 'could'],
+    ['will', 'would'],
+    ['shall', 'should'],
+    ['may', 'might'],
     ['good', 'better', 'best'],
     ['bad', 'worse', 'worst'],
     ['far', 'farther', 'further', 'farthest', 'furthest'],
@@ -443,6 +449,30 @@
    * @param {Object} facts
    * @returns {{ targetWord: string, targetMeaningZh: string|null, targetCardId: string|null, targetCardExample: string|null }}
    */
+  function _isDialogueLikeTile(text) {
+    const s = String(text || '').trim();
+    if (!s) return false;
+    if (/[?!,]/.test(s)) return true;
+    const words = s.split(/\s+/);
+    if (words.length >= 3 && !/^(?:a|an|the|take)\s+/i.test(s)) return true;
+    if (/^(?:you're welcome|no problem|my pleasure|anytime|good idea|sounds good|i agree|fair enough|feel better|take it easy|help me out|for here|to go)$/i.test(s)) {
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Pick ONE target word/phrase for the AI English example sentence and attach its
+   * grounded card meaning (zh), part of speech, and real card example fallback (if available).
+   * For 四格分類牆:
+   * - Never picks a dialogue phrase (e.g. "You're welcome", "Can you help me?") when any
+   *   non-dialogue tile was selected.
+   * - Prefers single words and short take-phrases (e.g. "eraser", "took", "a note") from the
+   *   most-confused non-dialogue group, favoring tiles backed by card data.
+   * - Also scans other non-dialogue selected tiles for a fallback card with a real example.
+   * @param {Object} facts
+   * @returns {{ targetWord: string, targetPos: string|null, targetMeaningZh: string|null, targetCardId: string|null, targetCardExample: string|null, fallbackCardTarget: Object|null }}
+   */
   function pickTargetForExample(facts) {
     const f = facts || {};
     const meaningMap = new Map();
@@ -463,22 +493,48 @@
           ? App.ai.templates.buildWallBreakdown(f.wall, f.selectedItems)
           : []);
 
-      // Most-confused group is breakdown[0] (sorted by items.length desc)
-      const primaryItems = bd.length && Array.isArray(bd[0].items) && bd[0].items.length
-        ? bd[0].items
-        : (Array.isArray(f.selectedItems) ? f.selectedItems : []);
+      const nonDialogueGroups = bd.filter((g) => g && g.skill !== 'dialogue');
+      const dialogueGroups = bd.filter((g) => g && g.skill === 'dialogue');
 
-      let chosenWord = primaryItems[0] || '';
-      let chosenCard = null;
-      for (const item of primaryItems) {
-        const card = _lookupCardForTarget(item);
-        if (card) {
-          chosenWord = item;
-          chosenCard = card;
-          break;
+      // Build ordered candidate items: non-dialogue groups (most confused first), excluding dialogue-like tiles
+      const nonDialogueItems = [];
+      for (const g of nonDialogueGroups) {
+        for (const it of (g.items || [])) {
+          if (!_isDialogueLikeTile(it)) nonDialogueItems.push({ text: it, groupSize: g.items.length, skill: g.skill });
+        }
+      }
+      if (!nonDialogueItems.length && Array.isArray(f.selectedItems)) {
+        for (const it of f.selectedItems) {
+          if (!_isDialogueLikeTile(it)) nonDialogueItems.push({ text: it, groupSize: 1, skill: 'vocab' });
         }
       }
 
+      const fallbackPool = nonDialogueItems.length
+        ? nonDialogueItems
+        : (dialogueGroups.length
+          ? dialogueGroups.flatMap((g) => (g.items || []).map((it) => ({ text: it, groupSize: g.items.length, skill: g.skill })))
+          : (Array.isArray(f.selectedItems) ? f.selectedItems.map((it) => ({ text: it, groupSize: 1, skill: 'vocab' })) : []));
+
+      // Score candidates: most-confused non-dialogue group first, then single words / take-phrases, then card data & real example
+      const scored = fallbackPool.map((cand, idx) => {
+        const text = String(cand.text || '').trim();
+        const card = _lookupCardForTarget(text);
+        const wordCount = text.split(/\s+/).filter(Boolean).length;
+        const isSingle = wordCount === 1;
+        const isTakePhrase = /^(?:a|an)\s+[a-z]+$/i.test(text);
+        const hasRealEx = Boolean(card && card.hasRealExample && card.example);
+        let score = cand.groupSize * 100;
+        if (isSingle) score += 30;
+        else if (isTakePhrase) score += 20;
+        if (card) score += 10;
+        if (hasRealEx) score += 5;
+        return { text, card, hasRealEx, score, idx };
+      });
+      scored.sort((a, b) => (b.score - a.score) || (a.idx - b.idx));
+
+      const best = scored[0] || { text: '', card: null, hasRealEx: false };
+      const chosenWord = best.text;
+      const chosenCard = best.card;
       const normChosen = String(chosenWord || '').trim().toLowerCase();
       const targetMeaningZh = (chosenCard && chosenCard.zh)
         || meaningMap.get(normChosen)
@@ -490,12 +546,28 @@
         ? String(chosenCard.example).trim()
         : null;
 
+      // If primary target has no real card example, check if another non-dialogue selected tile has one
+      let fallbackCardTarget = null;
+      if (!targetCardExample) {
+        const alt = scored.find((s) => s.hasRealEx && s.card);
+        if (alt) {
+          fallbackCardTarget = {
+            targetWord: alt.text,
+            targetPos: alt.card.pos || null,
+            targetMeaningZh: alt.card.zh || meaningMap.get(alt.text.toLowerCase()) || null,
+            targetCardId: alt.card.id,
+            targetCardExample: String(alt.card.example).trim(),
+          };
+        }
+      }
+
       return {
         targetWord: String(chosenWord || '').trim(),
         targetPos,
         targetMeaningZh,
         targetCardId: chosenCard ? chosenCard.id : (f.cardId || null),
         targetCardExample,
+        fallbackCardTarget,
       };
     }
 
@@ -521,6 +593,7 @@
       targetMeaningZh,
       targetCardId: (card && card.id) || f.cardId || null,
       targetCardExample,
+      fallbackCardTarget: null,
     };
   }
 
@@ -714,13 +787,20 @@
     const re = /\b(a|an)\s+([A-Za-z][A-Za-z'-]*)/gi;
     let m;
     while ((m = re.exec(s)) !== null) {
-      const art = m[1].toLowerCase();
+      const rawArt = m[1];
+      const art = rawArt.toLowerCase();
+      // Mid-sentence uppercase "A" (e.g. "Vitamin A is", "grade A in", "Plan A is") is a label, not an article
+      if (rawArt === 'A' && m.index > 0) {
+        const beforeTrim = s.slice(0, m.index).trim();
+        if (beforeTrim && !/[.!?"'(:;\-—]$/.test(beforeTrim)) continue;
+      }
+
       const nextRaw = m[2];
       const next = nextRaw.toLowerCase();
 
       const isSilentH = /^(?:hour|hours|hourly|honest|honestly|honesty|honor|honors|honorable|honour|honourable|heir|heirs|heiress|herb|herbs|herbal)$/.test(next);
       const isVowelAcronym = /^[FHLMNRSX][A-Z0-9-]{1,}$/.test(nextRaw) || /^x-ray/i.test(nextRaw);
-      const isConsonantVowelSpell = /^(?:uni(?:t|ts|form|forms|on|ons|que|verse|versal|versity|versities|corn|cycle)|use(?:r|rs|d|ful|less|s)?|usage|usual|usually|utensil|utensils|utility|utilities|ukulele|uranium|europ[a-z]*|euro|eulogy|one|once)(?:-|$)/.test(next);
+      const isConsonantVowelSpell = /^(?:uni(?:t|ts|form|forms|on|ons|que|ted|verse|versal|versity|versities|corn|cycle)|unanimo|use(?:r|rs|d|ful|less|s)?|usage|usual|usually|utensil|utensils|utility|utilities|utopia|ukulele|uranium|u-turn|ufo|europ[a-z]*|euro|eulogy|one|once)(?:-|$)/.test(next);
 
       let needsAn;
       if (isSilentH || isVowelAcronym) {
@@ -1659,6 +1739,7 @@
   async function explainMistake(facts, opts) {
     const o = opts || {};
     const timeoutMs = Number.isFinite(o.timeoutMs) ? o.timeoutMs : FIRST_TOKEN_TIMEOUT_MS;
+    const retryBudgetMs = Number.isFinite(o.retryBudgetMs) ? o.retryBudgetMs : RETRY_BUDGET_MS;
     const status = await detect();
     const tier = o.forceTier || status.activeTier || 'template';
     const codeReason = buildDeterministicReason(facts);
@@ -1670,13 +1751,16 @@
       const ex = extra || {};
       const elapsedMs = ex.elapsedMs || Math.max(1, Math.round(performance.now() - genStart));
       const fellBack = tier !== 'template';
-      const cardExample = target.targetCardExample || null;
+      const resolvedFallbackTarget = target.targetCardExample
+        ? target
+        : (target.fallbackCardTarget || target);
+      const cardExample = resolvedFallbackTarget.targetCardExample || null;
       const exampleSource = cardExample ? 'card' : null;
       const matchedText = cardExample
-        ? (findTargetMatch(cardExample, target.targetWord) || target.targetWord || null)
+        ? (findTargetMatch(cardExample, resolvedFallbackTarget.targetWord) || resolvedFallbackTarget.targetWord || null)
         : null;
 
-      if (fellBack) {
+      if (fellBack && !ex.alreadyLogged) {
         _recordAttempt({
           ts: Date.now(),
           tier,
@@ -1703,9 +1787,9 @@
         tip: codeTip,
         example: cardExample,
         exampleSource,
-        targetWord: target.targetWord || null,
-        targetMeaningZh: target.targetMeaningZh || null,
-        targetCardId: target.targetCardId || null,
+        targetWord: resolvedFallbackTarget.targetWord || null,
+        targetMeaningZh: resolvedFallbackTarget.targetMeaningZh || null,
+        targetCardId: resolvedFallbackTarget.targetCardId || null,
         matchedText,
         source: 'template',
         modelKey: ex.modelKey || null,
@@ -1731,8 +1815,10 @@
       let lastRaw = null;
       let lastReason = 'empty';
       let lastElapsed = 0;
+      let loggedAny = false;
 
-      for (let attempt = 0; attempt < 2; attempt++) {
+      for (let attempt = 0; attempt < RETRY_TEMPERATURES.length; attempt++) {
+        if (attempt > 0 && (performance.now() - genStart) >= retryBudgetMs) break;
         try {
           const res = await _runWithFirstTokenTimeout(
             (sig, markFirst) => App.ai.nano.generate({
@@ -1751,7 +1837,6 @@
           lastRaw = res.text;
           lastElapsed = res.elapsedMs;
 
-          // Accept either plain sentence or JSON object with an example field
           let candidate = res.text;
           if (typeof candidate === 'string' && candidate.trim().startsWith('{')) {
             const parsed = extractJsonObject(candidate);
@@ -1759,26 +1844,27 @@
           }
 
           const checked = validateSentenceOutput(candidate, target.targetWord);
+          loggedAny = true;
+          _recordAttempt({
+            ts: Date.now(),
+            tier: 'nano',
+            source: checked.valid ? 'nano' : 'template',
+            exampleSource: checked.valid ? 'nano' : null,
+            modelKey: 'nano',
+            modelLabel: 'Gemini Nano',
+            device: 'nano',
+            targetWord: target.targetWord,
+            accepted: checked.valid,
+            fellBack: !checked.valid,
+            rejectionReason: checked.valid ? null : (checked.reason || 'invalid_sentence'),
+            rawOutput: res.text,
+            acceptedSentence: checked.valid ? checked.sentence : null,
+            firstTokenMs: null,
+            elapsedMs: res.elapsedMs,
+            tokenCount: null,
+            tokensPerSec: null,
+          });
           if (checked.valid) {
-            _recordAttempt({
-              ts: Date.now(),
-              tier: 'nano',
-              source: 'nano',
-              exampleSource: 'nano',
-              modelKey: 'nano',
-              modelLabel: 'Gemini Nano',
-              device: 'nano',
-              targetWord: target.targetWord,
-              accepted: true,
-              fellBack: false,
-              rejectionReason: null,
-              rawOutput: res.text,
-              acceptedSentence: checked.sentence,
-              firstTokenMs: null,
-              elapsedMs: res.elapsedMs,
-              tokenCount: null,
-              tokensPerSec: null,
-            });
             return {
               why: codeReason,
               tip: codeTip,
@@ -1799,12 +1885,12 @@
           }
           lastReason = checked.reason || 'invalid_sentence';
         } catch (err) {
-          if (err && err.name === 'AbortError') return fallback('aborted', { rawOutput: lastRaw });
-          if (err && err.name === 'TimeoutError') return fallback('timeout', { rawOutput: lastRaw });
-          if (attempt === 1) return fallback('nano_error', { rawOutput: lastRaw });
+          if (err && err.name === 'AbortError') return fallback('aborted', { rawOutput: lastRaw, alreadyLogged: loggedAny });
+          if (err && err.name === 'TimeoutError') return fallback('timeout', { rawOutput: lastRaw, alreadyLogged: loggedAny });
+          if (attempt === RETRY_TEMPERATURES.length - 1) return fallback('nano_error', { rawOutput: lastRaw, alreadyLogged: loggedAny });
         }
       }
-      return fallback(lastReason, { rawOutput: lastRaw, elapsedMs: lastElapsed });
+      return fallback(lastReason, { rawOutput: lastRaw, elapsedMs: lastElapsed, alreadyLogged: loggedAny });
     }
 
     // ── Tier 2: Qwen 2.5 (Code builds 錯誤原因 + 記憶提示; Qwen writes ONLY 1 English AI 例句) ─
@@ -1847,20 +1933,18 @@
       let lastRaw = null;
       let lastReason = 'missing_target';
       let lastResMeta = { device: activeDevice, modelKey: modelCfg.key, modelLabel: modelCfg.label };
+      let loggedAny = false;
 
-      for (let attempt = 0; attempt < 2; attempt++) {
+      // Up to 3 attempts (initial + 2 retries) with temperature schedule 0.3 -> 0.6 -> 0.8 within ~4s budget
+      for (let attempt = 0; attempt < RETRY_TEMPERATURES.length; attempt++) {
+        if (attempt > 0 && (performance.now() - genStart) >= retryBudgetMs) break;
+        const temp = RETRY_TEMPERATURES[attempt];
         try {
-          const runMsgs = attempt === 0
-            ? messages
-            : messages.concat([
-              { role: 'user', content: `Write one short English sentence containing "${target.targetWord}":` },
-            ]);
-
           const res = await _runWithFirstTokenTimeout(
             (sig, markFirst) => App.ai.qwen.generate({
-              messages: runMsgs,
+              messages,
               maxNewTokens: FEATURE_A_MAX_TOKENS,
-              temperature: 0.3,
+              temperature: temp,
               topP: 0.9,
               noRepeatNgramSize: 3,
               stopOnNewline: true,
@@ -1882,33 +1966,36 @@
             modelKey: res.modelKey || modelCfg.key,
             modelLabel: res.modelLabel || modelCfg.label,
             firstTokenMs: res.firstTokenMs || null,
-            elapsedMs: res.elapsedMs,
+            elapsedMs: Math.max(1, Math.round(performance.now() - genStart)),
             tokenCount: res.tokenCount || null,
             tokensPerSec: res.tokensPerSec || null,
             rawOutput: res.text,
           };
 
           const checked = validateSentenceOutput(res.text, target.targetWord);
+          loggedAny = true;
+          _recordAttempt({
+            ts: Date.now(),
+            tier: 'qwen',
+            source: checked.valid ? 'qwen' : 'template',
+            exampleSource: checked.valid ? 'qwen' : null,
+            modelKey: lastResMeta.modelKey,
+            modelLabel: lastResMeta.modelLabel,
+            device: activeDevice,
+            targetWord: target.targetWord,
+            temperature: temp,
+            accepted: checked.valid,
+            fellBack: !checked.valid,
+            rejectionReason: checked.valid ? null : (checked.reason || 'invalid_sentence'),
+            rawOutput: res.text,
+            acceptedSentence: checked.valid ? checked.sentence : null,
+            firstTokenMs: res.firstTokenMs || null,
+            elapsedMs: res.elapsedMs,
+            tokenCount: res.tokenCount || null,
+            tokensPerSec: res.tokensPerSec || null,
+          });
+
           if (checked.valid) {
-            _recordAttempt({
-              ts: Date.now(),
-              tier: 'qwen',
-              source: 'qwen',
-              exampleSource: 'qwen',
-              modelKey: lastResMeta.modelKey,
-              modelLabel: lastResMeta.modelLabel,
-              device: activeDevice,
-              targetWord: target.targetWord,
-              accepted: true,
-              fellBack: false,
-              rejectionReason: null,
-              rawOutput: res.text,
-              acceptedSentence: checked.sentence,
-              firstTokenMs: res.firstTokenMs || null,
-              elapsedMs: res.elapsedMs,
-              tokenCount: res.tokenCount || null,
-              tokensPerSec: res.tokensPerSec || null,
-            });
             return {
               why: codeReason,
               tip: codeTip,
@@ -1924,7 +2011,7 @@
               device: activeDevice,
               fellBack: false,
               note: null,
-              elapsedMs: res.elapsedMs,
+              elapsedMs: lastResMeta.elapsedMs,
               firstTokenMs: res.firstTokenMs || null,
               tokenCount: res.tokenCount || null,
               loadMs,
@@ -1932,16 +2019,17 @@
           }
           lastReason = checked.reason || 'invalid_sentence';
         } catch (err) {
-          if (err && err.name === 'AbortError') return fallback('aborted', lastResMeta);
-          if (err && err.name === 'TimeoutError') return fallback('timeout', lastResMeta);
-          if (attempt === 1) {
+          if (err && err.name === 'AbortError') return fallback('aborted', Object.assign({}, lastResMeta, { alreadyLogged: loggedAny }));
+          if (err && err.name === 'TimeoutError') return fallback('timeout', Object.assign({}, lastResMeta, { alreadyLogged: loggedAny }));
+          if (attempt === RETRY_TEMPERATURES.length - 1) {
             return fallback('qwen_error', Object.assign({}, lastResMeta, {
               rawOutput: lastRaw || (err && err.message ? err.message : null),
+              alreadyLogged: loggedAny,
             }));
           }
         }
       }
-      return fallback(lastReason, lastResMeta);
+      return fallback(lastReason, Object.assign({}, lastResMeta, { alreadyLogged: loggedAny }));
     }
 
     return fallback('unavailable', {});
@@ -1960,6 +2048,8 @@
     FIRST_TOKEN_TIMEOUT_MS,
     GENERATION_TIMEOUT_MS: FIRST_TOKEN_TIMEOUT_MS,
     FEATURE_A_MAX_TOKENS,
+    RETRY_TEMPERATURES,
+    RETRY_BUDGET_MS,
     SENTENCE_MIN_WORDS,
     SENTENCE_MAX_WORDS,
     MAX_TIP_CHARS,

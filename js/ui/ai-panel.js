@@ -47,14 +47,14 @@
     return _t('ai.source.template');
   }
 
-  function _fallbackNoteText(note) {
+  function _fallbackNoteText(note, hasCardExample) {
     if (!note) return '';
     if (note === 'aborted') return _t('ai.note_aborted');
     if (note === 'timeout') return _t('ai.note_timeout');
     if (note === 'download_error') return _t('ai.download_error');
     if (note === 'load_error' || note === 'out_of_memory') return _t('ai.load_error');
     if (note === 'load_error_15b') return _t('ai.load_error_15b');
-    return _t('ai.note_fallback');
+    return hasCardExample ? _t('ai.note_fallback_card') : _t('ai.note_fallback');
   }
 
   function _buildHighlightedSentence(sentence, matchedText, targetWord) {
@@ -150,7 +150,21 @@
 
     function renderResult(res) {
       clear(bodySlot);
-      sourceBadge.textContent = _sourceLabel(res.source, res.device, res.modelLabel);
+      const isAiExample = Boolean(
+        res.example && (
+          res.exampleSource === 'qwen'
+          || res.exampleSource === 'nano'
+          || (!res.exampleSource && (res.source === 'qwen' || res.source === 'nano'))
+        )
+      );
+      // Only show 離線範本 as the top badge when all AI attempts failed and no AI/card example is displayed
+      if (isAiExample) {
+        sourceBadge.textContent = _sourceLabel(res.exampleSource || res.source, res.device, res.modelLabel);
+      } else if (res.exampleSource === 'card') {
+        sourceBadge.textContent = _t('ai.example_source_card');
+      } else {
+        sourceBadge.textContent = _sourceLabel(res.source, res.device, res.modelLabel);
+      }
       const sec = _formatSeconds(res.elapsedMs);
       timingEl.textContent = _t('ai.elapsed', { sec });
 
@@ -166,7 +180,6 @@
       ];
 
       if (res.example) {
-        const isAiExample = res.exampleSource === 'qwen' || res.exampleSource === 'nano';
         const rowLabel = isAiExample ? _t('ai.label_ai_example') : _t('ai.example_source_card');
         const badgeText = isAiExample
           ? _sourceLabel(res.exampleSource, res.device, res.modelLabel)
@@ -196,7 +209,13 @@
       }
 
       if (res.fellBack && res.note) {
-        rows.push(el('p', { className: 'text-small text-muted', style: 'margin: 0;', text: _fallbackNoteText(res.note) }));
+        rows.push(
+          el('p', {
+            className: 'text-small text-muted',
+            style: 'margin: 0;',
+            text: _fallbackNoteText(res.note, res.exampleSource === 'card'),
+          })
+        );
       }
 
       const actions = [];

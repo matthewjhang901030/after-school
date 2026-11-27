@@ -109,6 +109,7 @@
           : `✗ ${_t('ai.diag.status_fallback')}`;
         const devStr = item.device ? String(item.device).toUpperCase() : '—';
         const modelTag = item.modelLabel || item.tier || 'template';
+        const tempStr = typeof item.temperature === 'number' ? ` · t=${item.temperature}` : '';
         const timingSummary = [
           `${_t('ai.diag.ttft')}: ${_fmtSec(item.firstTokenMs)}`,
           `${_t('ai.diag.total_time')}: ${_fmtSec(item.elapsedMs)}`,
@@ -128,7 +129,7 @@
               el('span', { className: 'ai-attempt-time', 'data-ai-attempt-time': 'true', text: _fmtTime(item.ts) }),
             ]),
             el('div', { className: 'detail-meta-grid' }, [
-              metaCard(_t('ai.diag.attempt_status'), `${modelTag} · ${devStr}`),
+              metaCard(_t('ai.diag.attempt_status'), `${modelTag} · ${devStr}${tempStr}`),
               metaCard(_t('ai.diag.target_word'), item.targetWord || '—'),
               metaCard(_t('ai.diag.rejection_reason'), item.rejectionReason || _t('ai.diag.reason_none')),
               metaCard(_t('ai.diag.metrics'), timingSummary),

@@ -1386,14 +1386,15 @@
         assert.equal(rQwen.matchedText, 'receive');
         assert.equal(rQwen.targetMeaningZh, '收到');
 
-        // Rejected output (missing target word) retries once, falls back to card example, and records raw output + reason
-        let qwenCalls = 0;
-        ai.qwen.generate = async () => {
-          qwenCalls++;
+        // Rejected output (missing target word) retries up to 2 more times (0.3 -> 0.6 -> 0.8), logs every attempt, and falls back to card example
+        const seenTemps = [];
+        ai.clearAttemptsLog();
+        ai.qwen.generate = async (opts) => {
+          seenTemps.push(opts.temperature);
           return {
             text: 'The cat slept quietly on the warm sofa.',
-            elapsedMs: 900,
-            firstTokenMs: 300,
+            elapsedMs: 120,
+            firstTokenMs: 40,
             tokenCount: 9,
             loadMs: 0,
             tokensPerSec: 10.0,
@@ -1403,7 +1404,8 @@
           };
         };
         const rFallback = await ai.explainMistake(sampleFacts);
-        assert.equal(qwenCalls, 2, 'Must retry once on rejected output before falling back');
+        assert.equal(seenTemps.length, 3, 'Must retry up to 2 more times (3 total attempts) within budget');
+        assert.deepEqual(seenTemps, [0.3, 0.6, 0.8], 'Retry temperatures must progress 0.3 -> 0.6 -> 0.8');
         assert.equal(rFallback.source, 'template');
         assert.equal(rFallback.exampleSource, 'card', 'Falls back to card real example when available');
         assert.equal(rFallback.example, sampleFacts.cardExample);
@@ -1411,9 +1413,12 @@
         assert.equal(rFallback.note, 'missing_target');
         assert.ok(rFallback.why.includes('receive'), 'Code-generated reason still explains the mistake');
 
+        const loggedRetries = ai.getLastAttempts(5);
+        assert.equal(loggedRetries.length, 3, 'Every retry attempt must be logged in AI Diagnostics');
         const lastAttempt = ai.getLastAttempt();
         assert.ok(lastAttempt && lastAttempt.rawOutput === 'The cat slept quietly on the warm sofa.', 'Raw model output recorded for diagnostics');
         assert.equal(lastAttempt.rejectionReason, 'missing_target', 'Exact rejection reason recorded');
+        assert.equal(lastAttempt.temperature, 0.8, 'Final attempt temperature recorded');
         assert.equal(lastAttempt.tokenCount, 9);
 
         // AI Diagnostics page displays Last 5 AI attempts (raw output + rejection reason + telemetry)
@@ -1811,9 +1816,66 @@
         assert.equal(gArt3.valid, false);
         assert.equal(gArt3.reason, 'article_error');
 
-        // Sound exceptions must NOT be falsely flagged
+        // Sound exceptions & take/phrasal targets must NOT trigger false positives on article_error / target_repeated
         assert.equal(ai.validateSentenceOutput('She studies at a university downtown.', 'university').valid, true);
         assert.equal(ai.validateSentenceOutput('We waited for an hour near the station.', 'hour').valid, true);
+        assert.equal(ai.validateSentenceOutput('She got an A on the math test.', 'test').valid, true);
+        assert.equal(ai.validateSentenceOutput('I wrote a note for my friend.', 'a note').valid, true);
+        assert.equal(ai.validateSentenceOutput('Please take a seat near the window.', 'a seat').valid, true);
+        assert.equal(ai.validateSentenceOutput('I took a shower after basketball practice.', 'a shower').valid, true);
+        assert.equal(ai.validateSentenceOutput('Can you help me out with this box?', 'Can you help me out?').valid, true);
+        assert.equal(ai.validateSentenceOutput('Could you help me out after class?', 'Can you help me out?').valid, true);
+
+        // Target choice: prefer single words / take-phrases, NEVER pick dialogue phrases when non-dialogue tiles exist
+        const dlgHeavyW1 = {
+          game: 'wall',
+          selectedItems: ["You're welcome", 'No problem', 'My pleasure', 'eraser'],
+          selectedBreakdown: ai.templates.buildWallBreakdown(walls[0], ["You're welcome", 'No problem', 'My pleasure', 'eraser']),
+        };
+        assert.equal(ai.pickTargetForExample(dlgHeavyW1).targetWord, 'eraser', 'Must skip dialogue group and pick eraser');
+
+        const dlgHeavyW2 = {
+          game: 'wall',
+          selectedItems: ['Could you help?', 'Help me out', 'Got a second?', 'spring'],
+          selectedBreakdown: ai.templates.buildWallBreakdown(walls[1], ['Could you help?', 'Help me out', 'Got a second?', 'spring']),
+        };
+        assert.equal(ai.pickTargetForExample(dlgHeavyW2).targetWord, 'spring', 'Must skip dialogue phrases and pick spring');
+
+        const takePhraseW1 = {
+          game: 'wall',
+          selectedItems: ['a note', 'a seat', 'Anytime', 'No problem'],
+          selectedBreakdown: ai.templates.buildWallBreakdown(walls[0], ['a note', 'a seat', 'Anytime', 'No problem']),
+        };
+        const takePick = ai.pickTargetForExample(takePhraseW1);
+        assert.ok(takePick.targetWord === 'a note' || takePick.targetWord === 'a seat', 'Picks take-phrase over dialogue');
+
+        // Retry schedule: fails at t=0.3, succeeds on retry 2 at t=0.6, logs BOTH attempts, badge shows Qwen 2.5 + WebGPU (not 離線範本)
+        ai.clearAttemptsLog();
+        let retrySeq = 0;
+        const retryTempsSeen = [];
+        ai.qwen.isSupported = () => true;
+        ai.qwen.init = async () => ({ loadMs: 5, device: 'webgpu', dtype: 'q4f16' });
+        ai.qwen.generate = async (opts) => {
+          retrySeq++;
+          retryTempsSeen.push(opts.temperature);
+          return {
+            text: retrySeq === 1 ? 'The Seat:' : 'I borrowed an eraser from my classmate.',
+            elapsedMs: 120,
+            firstTokenMs: 40,
+            tokenCount: 8,
+            device: 'webgpu',
+            modelKey: '0.5b',
+            modelLabel: 'Qwen 2.5 0.5B',
+          };
+        };
+        const retryPanel = window.App.aiPanel.create(dlgHeavyW1, { autoStart: false });
+        const retryRes = await retryPanel.start('qwen');
+        assert.deepEqual(retryTempsSeen, [0.3, 0.6], 'Stops retrying on first sentence that passes');
+        assert.equal(retryRes.exampleSource, 'qwen');
+        assert.equal(ai.getLastAttempts(5).length, 2, 'Logs both failed and succeeded attempts');
+        assert.ok(retryPanel.root.querySelector('.ai-source-badge').textContent.includes('WebGPU'), 'Top badge shows Qwen WebGPU when example succeeds');
+        assert.ok(!retryPanel.root.querySelector('.ai-source-badge').textContent.includes('離線範本'), 'Must NOT show 離線範本 when Qwen example passed');
+        assert.ok(retryPanel.root.querySelector('[data-ai-example-badge="true"]').textContent.includes('WebGPU'), 'AI 例句 badge shows Qwen WebGPU');
 
         // Target repeated more than once -> target_repeated
         const gTargetRep = ai.validateSentenceOutput('She used an eraser to clean the eraser.', 'eraser');
@@ -1882,7 +1944,7 @@
         const meaningEl = panelOk.root.querySelector('[data-ai-example-meaning="true"]');
         assert.ok(meaningEl && meaningEl.textContent.trim().length > 0, 'Card Chinese meaning shown under AI example');
 
-        // 4. When Qwen is rejected and card has NO real example -> hide AI 例句 block completely
+        // 4. When Qwen is rejected and card has NO real example -> hide AI 例句 block completely & show 離線範本 badge
         const noExFacts = {
           game: 'wall',
           selectedItems: ['Could you help?', 'Help me out', 'rain', 'wind'],
@@ -1890,8 +1952,8 @@
         };
         ai.qwen.generate = async () => ({
           text: 'Cut off without period',
-          elapsedMs: 600,
-          firstTokenMs: 150,
+          elapsedMs: 100,
+          firstTokenMs: 50,
           tokenCount: 5,
           device: 'webgpu',
           modelKey: '0.5b',
@@ -1901,14 +1963,29 @@
         const resHidden = await panelHidden.start('qwen');
         assert.equal(resHidden.example, null, 'No broken sentence returned when card has no real example');
         assert.equal(panelHidden.root.querySelector('[data-ai-example-row="true"]'), null, 'AI 例句 block hidden completely when rejected and no card example');
+        assert.ok(panelHidden.root.querySelector('.ai-source-badge').textContent.includes('離線範本'), '離線範本 badge shown when all attempts fail and no card example exists');
+        assert.ok(!panelHidden.root.textContent.includes('改顯示卡片例句'), 'Fallback note must not claim card example is shown when hidden');
+
+        // 4b. When Qwen fails on a wall pick where a selected non-dialogue tile HAS a real card example -> show 卡片例句 (not AI)
+        const hasCardExFacts = {
+          game: 'wall',
+          selectedItems: ['rain', 'wind', 'spring', 'Could you help?'],
+          selectedBreakdown: ai.templates.buildWallBreakdown(walls[1], ['rain', 'wind', 'spring', 'Could you help?']),
+        };
+        const panelCardEx = window.App.aiPanel.create(hasCardExFacts, { autoStart: false });
+        const resCardEx = await panelCardEx.start('qwen');
+        assert.equal(resCardEx.exampleSource, 'card', 'Falls back to real card example from selected non-dialogue tile');
+        assert.ok(resCardEx.example && resCardEx.example.length > 0);
+        const cardExBadge = panelCardEx.root.querySelector('[data-ai-example-badge="true"]');
+        assert.ok(cardExBadge && cardExBadge.textContent.includes('卡片例句'), 'Card fallback labeled 卡片例句, not AI');
 
         // 5. Diagnostics keeps the last 5 AI attempts (newest first) and renders all 5 in #/settings/ai
         ai.clearAttemptsLog();
         for (let i = 1; i <= 6; i++) {
           ai.qwen.generate = async () => ({
-            text: i % 2 === 0 ? `She used an eraser number ${i} today.` : `Cut off sample ${i}`,
-            elapsedMs: 500 + i * 10,
-            firstTokenMs: 120,
+            text: `She used an eraser number ${i} today.`,
+            elapsedMs: 100 + i * 10,
+            firstTokenMs: 40,
             tokenCount: 7,
             device: 'webgpu',
             modelKey: '0.5b',
