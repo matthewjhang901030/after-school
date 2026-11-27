@@ -33,6 +33,13 @@
     return parts.length ? parts.join(' · ') : '—';
   }
 
+  function _fmtTime(ts) {
+    if (!ts || !Number.isFinite(Number(ts))) return '—';
+    const d = new Date(Number(ts));
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  }
+
   function mount(root) {
     _root = root;
     const { el, clear } = App.dom;
@@ -80,46 +87,63 @@
       );
     }
 
-    function renderLastAttempt(last) {
+    function renderAttempts(attempts) {
       clear(lastAttemptSlot);
       lastAttemptSlot.appendChild(
         el('h2', { className: 'text-muted text-small', style: 'margin-bottom: var(--space-3);', text: _t('ai.diag.last_attempt') })
       );
 
-      if (!last) {
+      const list = Array.isArray(attempts) ? attempts : [];
+      if (!list.length) {
         lastAttemptSlot.appendChild(
           el('p', { className: 'text-muted text-small', text: _t('ai.diag.no_attempt') })
         );
         return;
       }
 
-      const statusText = last.fellBack
-        ? `✗ ${_t('ai.diag.status_fallback')}`
-        : `○ ${_t('ai.diag.status_ok')}`;
-      const devStr = last.device ? String(last.device).toUpperCase() : '—';
-      const modelTag = last.modelLabel || last.tier || 'template';
-      const timingSummary = [
-        `${_t('ai.diag.ttft')}: ${_fmtSec(last.firstTokenMs)}`,
-        `${_t('ai.diag.total_time')}: ${_fmtSec(last.elapsedMs)}`,
-        `${_t('ai.diag.tokens')}: ${last.tokenCount != null ? last.tokenCount : '—'}`,
-      ].join(' · ');
+      const wrap = el('div', { className: 'ai-attempts-list', 'data-ai-attempts-list': 'true' });
+      list.forEach((item, idx) => {
+        const accepted = item.accepted === true || item.fellBack === false;
+        const statusText = accepted
+          ? `○ ${_t('ai.diag.status_ok')}`
+          : `✗ ${_t('ai.diag.status_fallback')}`;
+        const devStr = item.device ? String(item.device).toUpperCase() : '—';
+        const modelTag = item.modelLabel || item.tier || 'template';
+        const timingSummary = [
+          `${_t('ai.diag.ttft')}: ${_fmtSec(item.firstTokenMs)}`,
+          `${_t('ai.diag.total_time')}: ${_fmtSec(item.elapsedMs)}`,
+          `${_t('ai.diag.tokens')}: ${item.tokenCount != null ? item.tokenCount : '—'}`,
+        ].join(' · ');
 
-      const card = el('div', { className: 'ai-panel', 'data-ai-last-attempt': 'true' }, [
-        el('div', { className: 'detail-meta-grid' }, [
-          metaCard(_t('ai.diag.attempt_status'), `${statusText} (${modelTag})`),
-          metaCard(_t('ai.diag.device'), devStr),
-          metaCard(_t('ai.diag.rejection_reason'), last.rejectionReason || _t('ai.diag.reason_none')),
-          metaCard(_t('ai.diag.metrics'), timingSummary),
-        ]),
-        el('div', { className: 'ai-result-label', text: _t('ai.diag.raw_output') }),
-        el('pre', {
-          className: 'ai-stream-box',
-          'data-ai-raw-output': 'true',
-          style: 'margin: 0; max-height: 200px; overflow: auto;',
-          text: last.rawOutput || _t('ai.diag.raw_empty'),
-        }),
-      ]);
-      lastAttemptSlot.appendChild(card);
+        const attrs = {
+          className: 'ai-panel',
+          'data-ai-attempt-item': 'true',
+        };
+        if (idx === 0) attrs['data-ai-last-attempt'] = 'true';
+
+        wrap.appendChild(
+          el('div', attrs, [
+            el('div', { className: 'ai-attempt-head' }, [
+              el('span', { className: 'ai-panel-title', text: `#${idx + 1} · ${statusText}` }),
+              el('span', { className: 'ai-attempt-time', 'data-ai-attempt-time': 'true', text: _fmtTime(item.ts) }),
+            ]),
+            el('div', { className: 'detail-meta-grid' }, [
+              metaCard(_t('ai.diag.attempt_status'), `${modelTag} · ${devStr}`),
+              metaCard(_t('ai.diag.target_word'), item.targetWord || '—'),
+              metaCard(_t('ai.diag.rejection_reason'), item.rejectionReason || _t('ai.diag.reason_none')),
+              metaCard(_t('ai.diag.metrics'), timingSummary),
+            ]),
+            el('div', { className: 'ai-result-label', text: _t('ai.diag.raw_output') }),
+            el('pre', {
+              className: 'ai-stream-box',
+              'data-ai-raw-output': 'true',
+              style: 'margin: 0; max-height: 160px; overflow: auto;',
+              text: item.rawOutput || _t('ai.diag.raw_empty'),
+            }),
+          ])
+        );
+      });
+      lastAttemptSlot.appendChild(wrap);
     }
 
     async function refreshStatus() {
@@ -127,7 +151,10 @@
       const st = await App.ai.detect(true);
       const qm = App.ai.qwen ? App.ai.qwen.getMetrics() : {};
       const allM = App.ai.qwen && App.ai.qwen.getAllMetrics ? App.ai.qwen.getAllMetrics() : { '0.5b': qm, '1.5b': null };
-      const last = typeof App.ai.getLastAttempt === 'function' ? App.ai.getLastAttempt() : null;
+      const attempts = typeof App.ai.getLastAttempts === 'function'
+        ? App.ai.getLastAttempts(5)
+        : (typeof App.ai.getLastAttempt === 'function' && App.ai.getLastAttempt() ? [App.ai.getLastAttempt()] : []);
+      const last = attempts[0] || null;
       const mbCached = ((st.qwen.cachedBytes || 0) / (1024 * 1024)).toFixed(1);
       const cacheText = st.qwen.cached
         ? _t('ai.diag.cached_info', { files: st.qwen.cachedFiles, mb: mbCached })
@@ -150,7 +177,7 @@
       statusGrid.appendChild(metaCard(_t('ai.diag.metrics_05b'), _formatModelMetrics(allM['0.5b'])));
       statusGrid.appendChild(metaCard(_t('ai.diag.metrics_15b'), _formatModelMetrics(allM['1.5b'])));
 
-      renderLastAttempt(last);
+      renderAttempts(attempts);
     }
 
     const testBtn = el('button', {

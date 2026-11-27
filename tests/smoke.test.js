@@ -1336,10 +1336,10 @@
         assert.equal(rTpl.fellBack, false);
         assert.ok(rTpl.why.includes('receive') && rTpl.tip.length > 0);
 
-        // Tier 1: Forced Nano (mocked LanguageModel + Translator)
+        // Tier 1: Forced Nano (why + tip stay code/template; Nano writes AI English example)
         ai.nano.detect = async () => ({ available: true, ready: true, availability: 'available', translatorAvailability: 'available' });
         ai.nano.generate = async () => ({
-          text: '{"why":"You swapped i and e.","tip":"Remember ei after c.","example":"Did you receive my message?"}',
+          text: 'Did you receive my message yesterday?',
           elapsedMs: 120,
         });
         ai.nano.translateEnToZh = async (s) => '[ZH] ' + s;
@@ -1347,24 +1347,26 @@
         ai.invalidateDetection();
         const rNano = await ai.explainMistake(sampleFacts);
         assert.equal(rNano.source, 'nano');
+        assert.equal(rNano.exampleSource, 'nano');
         assert.equal(rNano.fellBack, false);
-        assert.ok(rNano.why.startsWith('[ZH] '), 'Nano output translated when Translator is available');
-        assert.ok(rNano.example && rNano.example.includes('receive'));
+        assert.ok(rNano.why.includes('receive'), 'Why is deterministic code');
+        assert.ok(rNano.tip.length > 0, 'Tip is deterministic code/template');
+        assert.equal(rNano.example, 'Did you receive my message yesterday?');
 
-        // Tier 2: Forced Qwen (code builds 錯誤原因; Qwen writes ONLY 1-sentence 記憶提示)
+        // Tier 2: Forced Qwen (code builds 錯誤原因 + 記憶提示; Qwen writes ONLY 1 short English AI 例句)
         ai.qwen.isSupported = () => true;
         ai.qwen.init = async () => ({ loadMs: 50, device: 'webgpu', dtype: 'q4f16' });
         ai.qwen.generate = async (opts) => {
-          assert.ok(Array.isArray(opts.messages) && opts.messages.length >= 4, 'Qwen uses multi-turn few-shot chat template');
+          assert.ok(Array.isArray(opts.messages) && opts.messages.length >= 6, 'Qwen uses English multi-turn few-shot chat template');
           assert.ok(opts.temperature > 0 && opts.temperature <= 0.4, 'Qwen uses low temperature (~0.3)');
           assert.equal(opts.noRepeatNgramSize, 3, 'Qwen uses no_repeat_ngram_size: 3');
-          assert.equal(opts.maxNewTokens, 60, 'Qwen caps tip at ~60 new tokens');
-          assert.equal(opts.stopOnSentence, true, 'Qwen stops at first newline or 。');
+          assert.equal(opts.maxNewTokens, 30, 'Qwen caps AI example at 30 new tokens');
+          assert.equal(opts.stopOnNewline, true, 'Qwen stops at first newline');
           return {
-            text: '记住 receive 的 c 后面接 ei 就不会拼反。多余的第二句。',
-            elapsedMs: 2800,
+            text: 'I will receive your email tomorrow.\nExtra second line ignored.',
+            elapsedMs: 1800,
             firstTokenMs: 420,
-            tokenCount: 16,
+            tokenCount: 11,
             loadMs: 50,
             tokensPerSec: 18.5,
             device: 'webgpu',
@@ -1376,21 +1378,25 @@
         ai.invalidateDetection();
         const rQwen = await ai.explainMistake(sampleFacts);
         assert.equal(rQwen.source, 'qwen');
+        assert.equal(rQwen.exampleSource, 'qwen');
         assert.equal(rQwen.fellBack, false);
         assert.ok(rQwen.why.includes('receive') && rQwen.why.includes('recieve'), '錯誤原因 is generated deterministically by code');
-        assert.equal(rQwen.tip, '記住 receive 的 c 後面接 ei 就不會拼反。', 'Tip stops at first 。 and converts S2T');
+        assert.equal(rQwen.tip, ai.buildDeterministicTip(sampleFacts), '記憶提示 is always the code/template tip');
+        assert.equal(rQwen.example, 'I will receive your email tomorrow.', 'AI example stops at first newline');
+        assert.equal(rQwen.matchedText, 'receive');
+        assert.equal(rQwen.targetMeaningZh, '收到');
 
-        // Unacceptable output (pure English gibberish in zh-TW) retries once, falls back, and records raw output + reason
+        // Rejected output (missing target word) retries once, falls back to card example, and records raw output + reason
         let qwenCalls = 0;
         ai.qwen.generate = async () => {
           qwenCalls++;
           return {
-            text: 'sorry cannot answer in chinese',
+            text: 'The cat slept quietly on the warm sofa.',
             elapsedMs: 900,
             firstTokenMs: 300,
-            tokenCount: 6,
+            tokenCount: 9,
             loadMs: 0,
-            tokensPerSec: 6.7,
+            tokensPerSec: 10.0,
             device: 'webgpu',
             modelKey: '0.5b',
             modelLabel: 'Qwen 2.5 0.5B',
@@ -1399,23 +1405,25 @@
         const rFallback = await ai.explainMistake(sampleFacts);
         assert.equal(qwenCalls, 2, 'Must retry once on rejected output before falling back');
         assert.equal(rFallback.source, 'template');
+        assert.equal(rFallback.exampleSource, 'card', 'Falls back to card real example when available');
+        assert.equal(rFallback.example, sampleFacts.cardExample);
         assert.equal(rFallback.fellBack, true);
-        assert.equal(rFallback.note, 'no_chinese');
+        assert.equal(rFallback.note, 'missing_target');
         assert.ok(rFallback.why.includes('receive'), 'Code-generated reason still explains the mistake');
 
         const lastAttempt = ai.getLastAttempt();
-        assert.ok(lastAttempt && lastAttempt.rawOutput === 'sorry cannot answer in chinese', 'Raw model output recorded for diagnostics');
-        assert.equal(lastAttempt.rejectionReason, 'no_chinese', 'Exact rejection reason recorded');
-        assert.equal(lastAttempt.tokenCount, 6);
+        assert.ok(lastAttempt && lastAttempt.rawOutput === 'The cat slept quietly on the warm sofa.', 'Raw model output recorded for diagnostics');
+        assert.equal(lastAttempt.rejectionReason, 'missing_target', 'Exact rejection reason recorded');
+        assert.equal(lastAttempt.tokenCount, 9);
 
-        // AI Diagnostics page displays Last AI attempt (raw output + rejection reason + telemetry)
+        // AI Diagnostics page displays Last 5 AI attempts (raw output + rejection reason + telemetry)
         const mountRoot = document.getElementById('test-router-root');
         window.App.pages.aiDiagnostics.mount(mountRoot);
         await new Promise((r) => setTimeout(r, 20));
         const diagAttempt = mountRoot.querySelector('[data-ai-last-attempt="true"]');
-        assert.ok(diagAttempt, 'AI Diagnostics renders Last AI attempt section');
-        assert.ok(diagAttempt.textContent.includes('no_chinese'), 'Rejection reason displayed in Diagnostics');
-        assert.ok(mountRoot.querySelector('[data-ai-raw-output="true"]').textContent.includes('sorry cannot answer'));
+        assert.ok(diagAttempt, 'AI Diagnostics renders attempt card');
+        assert.ok(diagAttempt.textContent.includes('missing_target'), 'Rejection reason displayed in Diagnostics');
+        assert.ok(mountRoot.querySelector('[data-ai-raw-output="true"]').textContent.includes('The cat slept'));
         window.App.pages.aiDiagnostics.unmount();
       } finally {
         ai.nano.generate = origNanoGen;
@@ -1497,18 +1505,18 @@
         assert.equal(salvaged.valid, true, 'Cleanly truncated 80-token JSON should be salvaged');
         assert.equal(salvaged.data.why, '詞性不同。');
 
-        // 2. TTFT timeout: first token arrives at 25ms, full answer at 90ms with timeoutMs=50ms -> MUST SUCCEED
+        // 2. TTFT timeout: first token arrives at 20ms, full answer at 90ms with timeoutMs=50ms -> MUST SUCCEED
         ai.qwen.init = async () => ({ loadMs: 5, device: 'webgpu', dtype: 'q4f16' });
         ai.qwen.generate = async (opts) => {
           await new Promise((r) => setTimeout(r, 20));
-          if (opts.onToken) opts.onToken('記住', '記住');
+          if (opts.onToken) opts.onToken('Did ', 'Did ');
           await new Promise((r) => setTimeout(r, 70));
-          assert.equal(opts.maxNewTokens, 60, 'Feature A must cap Qwen tip at 60 new tokens');
+          assert.equal(opts.maxNewTokens, 30, 'Feature A must cap Qwen AI example at 30 new tokens');
           return {
-            text: '記住 receive 的 c 後面接 ei。',
+            text: 'Did you receive the letter today?',
             elapsedMs: 90,
             firstTokenMs: 20,
-            tokenCount: 10,
+            tokenCount: 7,
             device: 'webgpu',
             modelKey: '0.5b',
             modelLabel: 'Qwen 2.5 0.5B',
@@ -1615,7 +1623,7 @@
         assert.equal(goodTip.valid, true, 'Good concise tip passes quality gate');
         assert.equal(goodTip.tip, '先把動詞過去式和日常對話短句分開。');
 
-        // 3. Fallback path when Qwen emits the repetition loop: preserves accurate code reason, falls back tip, records rawOutput + reason
+        // 3. Fallback path when Qwen emits a non-Latin/degenerate loop: keeps code reason & template tip, records rawOutput + non_latin
         ai.qwen.isSupported = () => true;
         ai.qwen.init = async () => ({ loadMs: 10, device: 'webgpu', dtype: 'q4f16' });
         ai.qwen.generate = async () => ({
@@ -1628,13 +1636,14 @@
           modelLabel: 'Qwen 2.5 0.5B',
         });
         const fbRes = await ai.explainMistake(wallFacts, { forceTier: 'qwen' });
-        assert.equal(fbRes.source, 'template', 'Loop output falls back to template tip');
+        assert.equal(fbRes.source, 'template', 'Non-Latin degenerate loop falls back cleanly');
         assert.equal(fbRes.fellBack, true);
-        assert.equal(fbRes.note, 'repetition_loop');
+        assert.equal(fbRes.note, 'non_latin');
         assert.ok(fbRes.why.includes('ate、took') && fbRes.why.includes('這四個不在同一組'), 'Code-generated reason remains intact on fallback');
+        assert.equal(fbRes.tip, ai.buildDeterministicTip(wallFacts), 'Code/template tip remains intact');
         const logged = ai.getLastAttempt();
-        assert.equal(logged.rawOutput, edgeLoop, 'Raw degenerate loop stored in Last AI Attempt');
-        assert.equal(logged.rejectionReason, 'repetition_loop');
+        assert.equal(logged.rawOutput, edgeLoop, 'Raw degenerate loop stored in AI attempts log');
+        assert.equal(logged.rejectionReason, 'non_latin');
 
         // 4. Opt-in Qwen model switch (0.5B ~467 MB vs 1.5B ~1172 MB)
         settings.update({ qwenModel: '1.5b' });
@@ -1733,6 +1742,160 @@
         ai.qwen.isSupported = origSup;
         settings.update({ qwenModel: origModel });
         ai.invalidateDetection();
+      }
+    });
+
+    test('AI 例句 sentence gate, meaningless Chinese tip immunity, safe highlighting, fallback hiding, and last 5 attempts log', async () => {
+      const ai = window.App.ai;
+      const walls = window.App.data.walls;
+      const origInit = ai.qwen.init;
+      const origGen = ai.qwen.generate;
+      const origSup = ai.qwen.isSupported;
+
+      try {
+        // 1. Sentence quality gate checks
+        // Missing target word -> missing_target
+        const gMissing = ai.validateSentenceOutput('He walked quickly to the bus stop.', 'eraser');
+        assert.equal(gMissing.valid, false);
+        assert.equal(gMissing.reason, 'missing_target');
+
+        // Too long (> 14 words) -> too_long
+        const gLong = ai.validateSentenceOutput(
+          'She carefully borrowed a clean white eraser from her best friend in the quiet school library this morning.',
+          'eraser'
+        );
+        assert.equal(gLong.valid, false);
+        assert.equal(gLong.reason, 'too_long');
+
+        // Too short (< 4 words) -> too_short
+        const gShort = ai.validateSentenceOutput('Use an eraser.', 'eraser');
+        assert.equal(gShort.valid, false);
+        assert.equal(gShort.reason, 'too_short');
+
+        // Non-Latin (the real meaningless Chinese output from Chrome) -> non_latin
+        const chromeGarbage = 'note 起做任何事，anytime 作「謝謝」，一個就算兩倒，成這。';
+        const gNonLatin = ai.validateSentenceOutput(chromeGarbage, 'a note');
+        assert.equal(gNonLatin.valid, false);
+        assert.equal(gNonLatin.reason, 'non_latin');
+
+        // Word repeated 3+ times -> word_repetition
+        const gRep = ai.validateSentenceOutput('He took a note note note in class.', 'a note');
+        assert.equal(gRep.valid, false);
+        assert.equal(gRep.reason, 'word_repetition');
+
+        // Cut-off sentence (no ending ., !, or ?) -> incomplete_sentence
+        const gCut = ai.validateSentenceOutput('He used an eraser to clean the', 'eraser');
+        assert.equal(gCut.valid, false);
+        assert.equal(gCut.reason, 'incomplete_sentence');
+
+        // Copied few-shot example -> copied_fewshot
+        const gCopy = ai.validateSentenceOutput('I took a note in class.', 'took a note');
+        assert.equal(gCopy.valid, false);
+        assert.equal(gCopy.reason, 'copied_fewshot');
+
+        // Accepts simple inflections (take/took/takes/taking/taken) and stops at first newline
+        const gInflect1 = ai.validateSentenceOutput('She is taking a note right now.\nAnother line here.', 'took a note');
+        assert.equal(gInflect1.valid, true, 'Inflection "taking a note" accepted for target "took a note"');
+        assert.equal(gInflect1.sentence, 'She is taking a note right now.');
+        assert.equal(gInflect1.matchedText, 'taking a note');
+
+        const gInflect2 = ai.validateSentenceOutput('They ate dinner together at six.', 'eat');
+        assert.equal(gInflect2.valid, true, 'Irregular inflection "ate" accepted for target "eat"');
+        assert.equal(gInflect2.matchedText, 'ate');
+
+        // 2. Meaningless Chinese tip can NEVER be displayed as a tip anymore
+        const noteWallFacts = {
+          game: 'wall',
+          selectedItems: ['a note', 'a break', 'Anytime', 'eraser'],
+          selectedBreakdown: ai.templates.buildWallBreakdown(walls[0], ['a note', 'a break', 'Anytime', 'eraser']),
+        };
+        ai.qwen.isSupported = () => true;
+        ai.qwen.init = async () => ({ loadMs: 10, device: 'webgpu', dtype: 'q4f16' });
+        ai.qwen.generate = async () => ({
+          text: chromeGarbage,
+          elapsedMs: 800,
+          firstTokenMs: 200,
+          tokenCount: 22,
+          device: 'webgpu',
+          modelKey: '0.5b',
+          modelLabel: 'Qwen 2.5 0.5B',
+        });
+
+        const resGarbage = await ai.explainMistake(noteWallFacts, { forceTier: 'qwen' });
+        assert.equal(resGarbage.tip, ai.buildDeterministicTip(noteWallFacts), 'Tip is ALWAYS the deterministic code/template tip');
+        assert.ok(!resGarbage.tip.includes('成這'), 'Meaningless Chinese AI output can NEVER appear in tip');
+        assert.equal(resGarbage.note, 'non_latin');
+
+        // 3. Panel highlights target word safely with <mark> & shows card Chinese meaning under sentence
+        ai.qwen.generate = async () => ({
+          text: 'She wrote a quick note on the paper.',
+          elapsedMs: 750,
+          firstTokenMs: 180,
+          tokenCount: 9,
+          device: 'webgpu',
+          modelKey: '0.5b',
+          modelLabel: 'Qwen 2.5 0.5B',
+        });
+        const panelOk = window.App.aiPanel.create(noteWallFacts, { autoStart: false });
+        const resOk = await panelOk.start('qwen');
+        assert.equal(resOk.exampleSource, 'qwen');
+        const exRow = panelOk.root.querySelector('[data-ai-example-row="true"]');
+        assert.ok(exRow, 'AI 例句 row rendered');
+        const markEl = panelOk.root.querySelector('[data-ai-highlight="true"]');
+        assert.ok(markEl && markEl.tagName === 'MARK' && /note/i.test(markEl.textContent), 'Target word highlighted in <mark>');
+        const meaningEl = panelOk.root.querySelector('[data-ai-example-meaning="true"]');
+        assert.ok(meaningEl && meaningEl.textContent.trim().length > 0, 'Card Chinese meaning shown under AI example');
+
+        // 4. When Qwen is rejected and card has NO real example -> hide AI 例句 block completely
+        const noExFacts = {
+          game: 'wall',
+          selectedItems: ['Could you help?', 'Help me out', 'rain', 'wind'],
+          selectedBreakdown: ai.templates.buildWallBreakdown(walls[1], ['Could you help?', 'Help me out', 'rain', 'wind']),
+        };
+        ai.qwen.generate = async () => ({
+          text: 'Cut off without period',
+          elapsedMs: 600,
+          firstTokenMs: 150,
+          tokenCount: 5,
+          device: 'webgpu',
+          modelKey: '0.5b',
+          modelLabel: 'Qwen 2.5 0.5B',
+        });
+        const panelHidden = window.App.aiPanel.create(noExFacts, { autoStart: false });
+        const resHidden = await panelHidden.start('qwen');
+        assert.equal(resHidden.example, null, 'No broken sentence returned when card has no real example');
+        assert.equal(panelHidden.root.querySelector('[data-ai-example-row="true"]'), null, 'AI 例句 block hidden completely when rejected and no card example');
+
+        // 5. Diagnostics keeps the last 5 AI attempts (newest first) and renders all 5 in #/settings/ai
+        ai.clearAttemptsLog();
+        for (let i = 1; i <= 6; i++) {
+          ai.qwen.generate = async () => ({
+            text: i % 2 === 0 ? `She used an eraser number ${i} today.` : `Cut off sample ${i}`,
+            elapsedMs: 500 + i * 10,
+            firstTokenMs: 120,
+            tokenCount: 7,
+            device: 'webgpu',
+            modelKey: '0.5b',
+            modelLabel: 'Qwen 2.5 0.5B',
+          });
+          await ai.explainMistake({ game: 'class13', word: 'eraser', meaningZh: '橡皮擦', errorType: 'spelling' }, { forceTier: 'qwen' });
+        }
+        const last5 = ai.getLastAttempts(5);
+        assert.equal(last5.length, 5, 'Attempts log caps at last 5 attempts');
+        assert.ok(last5[0].rawOutput.includes('6'), 'Newest attempt (#6) is first');
+        assert.ok(last5[4].rawOutput.includes('2'), 'Oldest retained attempt is #2 (#1 evicted)');
+
+        const mountRoot = document.getElementById('test-router-root');
+        window.App.pages.aiDiagnostics.mount(mountRoot);
+        await new Promise((r) => setTimeout(r, 20));
+        const renderedCards = mountRoot.querySelectorAll('[data-ai-attempt-item="true"]');
+        assert.equal(renderedCards.length, 5, '#/settings/ai renders all 5 recent AI attempts');
+        assert.ok(mountRoot.querySelector('[data-ai-attempt-time="true"]').textContent.includes(':'), 'Each attempt shows a formatted timestamp');
+        window.App.pages.aiDiagnostics.unmount();
+      } finally {
+        ai.qwen.init = origInit;
+        ai.qwen.generate = origGen;
+        ai.qwen.isSupported = origSup;
       }
     });
   });

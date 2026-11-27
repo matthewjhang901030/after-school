@@ -14,9 +14,98 @@
   App.ai = App.ai || {};
 
   const FIRST_TOKEN_TIMEOUT_MS = 20000;
-  const FEATURE_A_MAX_TOKENS = 60;
+  const FEATURE_A_MAX_TOKENS = 30;
+  const SENTENCE_MIN_WORDS = 4;
+  const SENTENCE_MAX_WORDS = 14;
   const MAX_TIP_CHARS = 40;
+  const MAX_ATTEMPTS_LOG = 5;
+  const ATTEMPTS_LOG_KEY = 'as.v1.ai.attemptsLog';
   const LAST_ATTEMPT_KEY = 'as.v1.ai.lastAttempt';
+
+  /** English-only few-shot examples for Feature A AI Example generation. */
+  const EXAMPLE_FEWSHOTS = [
+    { word: 'took a note', sentence: 'I took a note in class.' },
+    { word: 'umbrella', sentence: 'She brought an umbrella for the rain.' },
+    { word: 'bicycle', sentence: 'He rode his bicycle to the park.' },
+  ];
+
+  /** Common irregular verb, comparative, and plural families for inflection matching. */
+  const IRREGULAR_FAMILIES = [
+    ['be', 'am', 'is', 'are', 'was', 'were', 'been', 'being'],
+    ['go', 'goes', 'went', 'gone', 'going'],
+    ['eat', 'eats', 'ate', 'eaten', 'eating'],
+    ['take', 'takes', 'took', 'taken', 'taking'],
+    ['see', 'sees', 'saw', 'seen', 'seeing'],
+    ['write', 'writes', 'wrote', 'written', 'writing'],
+    ['give', 'gives', 'gave', 'given', 'giving'],
+    ['come', 'comes', 'came', 'coming'],
+    ['make', 'makes', 'made', 'making'],
+    ['get', 'gets', 'got', 'gotten', 'getting'],
+    ['know', 'knows', 'knew', 'known', 'knowing'],
+    ['think', 'thinks', 'thought', 'thinking'],
+    ['bring', 'brings', 'brought', 'bringing'],
+    ['buy', 'buys', 'bought', 'buying'],
+    ['catch', 'catches', 'caught', 'catching'],
+    ['teach', 'teaches', 'taught', 'teaching'],
+    ['find', 'finds', 'found', 'finding'],
+    ['tell', 'tells', 'told', 'telling'],
+    ['say', 'says', 'said', 'saying'],
+    ['keep', 'keeps', 'kept', 'keeping'],
+    ['leave', 'leaves', 'left', 'leaving'],
+    ['feel', 'feels', 'felt', 'feeling'],
+    ['meet', 'meets', 'met', 'meeting'],
+    ['run', 'runs', 'ran', 'running'],
+    ['begin', 'begins', 'began', 'begun', 'beginning'],
+    ['drink', 'drinks', 'drank', 'drunk', 'drinking'],
+    ['sing', 'sings', 'sang', 'sung', 'singing'],
+    ['swim', 'swims', 'swam', 'swum', 'swimming'],
+    ['break', 'breaks', 'broke', 'broken', 'breaking'],
+    ['choose', 'chooses', 'chose', 'chosen', 'choosing'],
+    ['speak', 'speaks', 'spoke', 'spoken', 'speaking'],
+    ['drive', 'drives', 'drove', 'driven', 'driving'],
+    ['ride', 'rides', 'rode', 'ridden', 'riding'],
+    ['read', 'reads', 'reading'],
+    ['cut', 'cuts', 'cutting'],
+    ['put', 'puts', 'putting'],
+    ['hit', 'hits', 'hitting'],
+    ['cost', 'costs', 'costing'],
+    ['let', 'lets', 'letting'],
+    ['set', 'sets', 'setting'],
+    ['shut', 'shuts', 'shutting'],
+    ['hurt', 'hurts', 'hurting'],
+    ['send', 'sends', 'sent', 'sending'],
+    ['spend', 'spends', 'spent', 'spending'],
+    ['build', 'builds', 'built', 'building'],
+    ['lose', 'loses', 'lost', 'losing'],
+    ['win', 'wins', 'won', 'winning'],
+    ['sit', 'sits', 'sat', 'sitting'],
+    ['stand', 'stands', 'stood', 'standing'],
+    ['understand', 'understands', 'understood', 'understanding'],
+    ['have', 'has', 'had', 'having'],
+    ['do', 'does', 'did', 'done', 'doing'],
+    ['good', 'better', 'best'],
+    ['bad', 'worse', 'worst'],
+    ['far', 'farther', 'further', 'farthest', 'furthest'],
+    ['little', 'less', 'least'],
+    ['much', 'many', 'more', 'most'],
+    ['child', 'children'],
+    ['foot', 'feet'],
+    ['tooth', 'teeth'],
+    ['mouse', 'mice'],
+    ['man', 'men'],
+    ['woman', 'women'],
+    ['person', 'people'],
+    ['leaf', 'leaves'],
+    ['knife', 'knives'],
+    ['life', 'lives'],
+  ];
+
+  const IRREGULAR_MAP = new Map();
+  for (const fam of IRREGULAR_FAMILIES) {
+    for (const form of fam) {
+      IRREGULAR_MAP.set(form, fam);
+    }
+  }
 
   /** Instruction phrases that indicate the model echoed prompt directions. */
   const ECHO_WORDS = [
@@ -30,7 +119,7 @@
   ];
 
   let _cachedStatus = null;
-  let _lastAttempt = null;
+  let _attemptsLog = null;
 
   const FEATURE_A_SCHEMA = {
     type: 'object',
@@ -144,11 +233,44 @@
     return out;
   }
 
-  function _saveLastAttempt(record) {
-    _lastAttempt = Object.assign({}, record);
+  function _loadAttemptsLog() {
+    if (Array.isArray(_attemptsLog)) return _attemptsLog;
     if (App.store && App.store.db) {
-      App.store.db.set(LAST_ATTEMPT_KEY, _lastAttempt);
+      const saved = App.store.db.get(ATTEMPTS_LOG_KEY, null);
+      if (Array.isArray(saved)) {
+        _attemptsLog = saved.slice(0, MAX_ATTEMPTS_LOG);
+        return _attemptsLog;
+      }
+      const legacy = App.store.db.get(LAST_ATTEMPT_KEY, null);
+      if (legacy && typeof legacy === 'object') {
+        _attemptsLog = [legacy];
+        return _attemptsLog;
+      }
     }
+    _attemptsLog = [];
+    return _attemptsLog;
+  }
+
+  function _recordAttempt(record) {
+    const entry = Object.assign({}, record);
+    const list = _loadAttemptsLog().slice();
+    list.unshift(entry);
+    if (list.length > MAX_ATTEMPTS_LOG) list.length = MAX_ATTEMPTS_LOG;
+    _attemptsLog = list;
+    if (App.store && App.store.db) {
+      App.store.db.set(ATTEMPTS_LOG_KEY, list);
+      App.store.db.set(LAST_ATTEMPT_KEY, entry);
+    }
+  }
+
+  /**
+   * Return the last N (up to 5) AI attempts, newest first.
+   * @param {number} [limit=5]
+   * @returns {Array<Object>}
+   */
+  function getLastAttempts(limit) {
+    const cap = Number.isFinite(limit) && limit > 0 ? Math.min(MAX_ATTEMPTS_LOG, limit) : MAX_ATTEMPTS_LOG;
+    return _loadAttemptsLog().slice(0, cap).map((r) => Object.assign({}, r));
   }
 
   /**
@@ -156,15 +278,16 @@
    * @returns {Object|null}
    */
   function getLastAttempt() {
-    if (_lastAttempt) return Object.assign({}, _lastAttempt);
+    const list = _loadAttemptsLog();
+    return list.length ? Object.assign({}, list[0]) : null;
+  }
+
+  function clearAttemptsLog() {
+    _attemptsLog = [];
     if (App.store && App.store.db) {
-      const saved = App.store.db.get(LAST_ATTEMPT_KEY, null);
-      if (saved && typeof saved === 'object') {
-        _lastAttempt = saved;
-        return Object.assign({}, saved);
-      }
+      App.store.db.remove(ATTEMPTS_LOG_KEY);
+      App.store.db.remove(LAST_ATTEMPT_KEY);
     }
-    return null;
   }
 
   /**
@@ -268,6 +391,367 @@
   }
 
   /**
+   * Look up a vocabulary card matching a word, irregular form (e.g. ate -> eat),
+   * or article-prefixed phrase (e.g. "a note" -> "note").
+   * @param {string} rawText
+   * @returns {Object|null}
+   */
+  function _lookupCardForTarget(rawText) {
+    if (!App.store || !App.store.cards || typeof App.store.cards.findByWord !== 'function') return null;
+    const cleaned = String(rawText || '').trim();
+    if (!cleaned) return null;
+
+    const exact = App.store.cards.findByWord(cleaned);
+    if (exact) return exact;
+
+    const lower = cleaned.toLowerCase();
+    // Try base form from irregular families (e.g. ate -> eat, went -> go, took -> take)
+    const fam = IRREGULAR_MAP.get(lower);
+    if (fam) {
+      const baseCard = App.store.cards.findByWord(fam[0]);
+      if (baseCard) return baseCard;
+    }
+
+    // Try stripping leading article ("a note" -> "note", "an umbrella" -> "umbrella")
+    const noArticle = lower.replace(/^(?:a|an|the)\s+/, '');
+    if (noArticle && noArticle !== lower) {
+      const artCard = App.store.cards.findByWord(noArticle);
+      if (artCard) return artCard;
+    }
+
+    return null;
+  }
+
+  /**
+   * Pick ONE target word/phrase for the AI English example sentence and attach its
+   * grounded card meaning (zh) and real card example fallback (if available).
+   * For 四格分類牆, selects a tile from the group the player confused most
+   * (selectedBreakdown[0], preferring a tile backed by card data).
+   * @param {Object} facts
+   * @returns {{ targetWord: string, targetMeaningZh: string|null, targetCardId: string|null, targetCardExample: string|null }}
+   */
+  function pickTargetForExample(facts) {
+    const f = facts || {};
+    const meaningMap = new Map();
+    if (Array.isArray(f.cardMeanings)) {
+      for (const m of f.cardMeanings) {
+        if (m && m.word && m.zh) meaningMap.set(String(m.word).trim().toLowerCase(), String(m.zh).trim());
+      }
+    }
+
+    if (f.game === 'wall') {
+      const bd = Array.isArray(f.selectedBreakdown) && f.selectedBreakdown.length
+        ? f.selectedBreakdown
+        : (f.wall && Array.isArray(f.selectedItems) && App.ai.templates
+          ? App.ai.templates.buildWallBreakdown(f.wall, f.selectedItems)
+          : []);
+
+      // Most-confused group is breakdown[0] (sorted by items.length desc)
+      const primaryItems = bd.length && Array.isArray(bd[0].items) && bd[0].items.length
+        ? bd[0].items
+        : (Array.isArray(f.selectedItems) ? f.selectedItems : []);
+
+      let chosenWord = primaryItems[0] || '';
+      let chosenCard = null;
+      for (const item of primaryItems) {
+        const card = _lookupCardForTarget(item);
+        if (card) {
+          chosenWord = item;
+          chosenCard = card;
+          break;
+        }
+      }
+
+      const normChosen = String(chosenWord || '').trim().toLowerCase();
+      const targetMeaningZh = (chosenCard && chosenCard.zh)
+        || meaningMap.get(normChosen)
+        || null;
+      const targetCardExample = chosenCard && chosenCard.hasRealExample && chosenCard.example
+        ? String(chosenCard.example).trim()
+        : null;
+
+      return {
+        targetWord: String(chosenWord || '').trim(),
+        targetMeaningZh,
+        targetCardId: chosenCard ? chosenCard.id : (f.cardId || null),
+        targetCardExample,
+      };
+    }
+
+    const word = String(f.expected || f.word || '').trim();
+    let card = null;
+    if (f.cardId && App.store && App.store.cards && typeof App.store.cards.getById === 'function') {
+      card = App.store.cards.getById(f.cardId);
+    }
+    if (!card && word) card = _lookupCardForTarget(word);
+
+    const targetMeaningZh = (f.meaningZh && String(f.meaningZh).trim())
+      || (card && card.zh)
+      || null;
+    const targetCardExample = (f.cardExample && String(f.cardExample).trim())
+      || (card && card.hasRealExample && card.example ? String(card.example).trim() : null);
+
+    return {
+      targetWord: word,
+      targetMeaningZh,
+      targetCardId: (card && card.id) || f.cardId || null,
+      targetCardExample,
+    };
+  }
+
+  /**
+   * Build English-only few-shot chat messages asking Qwen for ONE short English example sentence.
+   * @param {string} targetWord
+   * @returns {Array<{ role: string, content: string }>}
+   */
+  function buildExampleMessages(targetWord) {
+    const msgs = [
+      {
+        role: 'system',
+        content: 'Write one short, natural English example sentence using the given word or phrase. Reply with only the sentence.',
+      },
+    ];
+    for (const fs of EXAMPLE_FEWSHOTS) {
+      msgs.push({ role: 'user', content: `Word: ${fs.word}` });
+      msgs.push({ role: 'assistant', content: fs.sentence });
+    }
+    msgs.push({ role: 'user', content: `Word: ${String(targetWord || '').trim()}` });
+    return msgs;
+  }
+
+  /**
+   * Generate simple inflectional variants for a single English word token
+   * (regular +s/+es/+ed/+ing/+er/+est, reverse stems, and irregular families).
+   * @param {string} word
+   * @returns {string[]}
+   */
+  function _wordInflections(word) {
+    const w = String(word || '').trim().toLowerCase();
+    if (!w) return [];
+    const set = new Set([w]);
+
+    const addRegular = (base) => {
+      if (!base) return;
+      set.add(base);
+      if (App.text && typeof App.text.variants === 'function') {
+        for (const v of App.text.variants(base)) set.add(v);
+      } else {
+        set.add(base + 's');
+        set.add(base + 'es');
+        set.add(base + 'ed');
+        set.add(base + 'ing');
+      }
+    };
+
+    const fam = IRREGULAR_MAP.get(w);
+    if (fam) {
+      for (const f of fam) set.add(f);
+      addRegular(fam[0]);
+    } else {
+      addRegular(w);
+    }
+
+    // Basic reverse stemming so inflected targets (e.g. "notes", "played", "taking") match base/other forms
+    if (w.length > 4 && w.endsWith('ies')) addRegular(w.slice(0, -3) + 'y');
+    else if (w.length > 4 && w.endsWith('ied')) addRegular(w.slice(0, -3) + 'y');
+    else if (w.length > 4 && w.endsWith('ing')) {
+      const stem = w.slice(0, -3);
+      addRegular(stem);
+      addRegular(stem + 'e');
+      if (stem.length >= 2 && stem[stem.length - 1] === stem[stem.length - 2]) {
+        addRegular(stem.slice(0, -1));
+      }
+    } else if (w.length > 3 && w.endsWith('ed')) {
+      const stem = w.slice(0, -2);
+      addRegular(stem);
+      addRegular(stem + 'e');
+      if (stem.length >= 2 && stem[stem.length - 1] === stem[stem.length - 2]) {
+        addRegular(stem.slice(0, -1));
+      }
+    } else if (w.length > 3 && w.endsWith('es')) {
+      addRegular(w.slice(0, -2));
+      addRegular(w.slice(0, -1));
+    } else if (w.length > 2 && w.endsWith('s') && !w.endsWith('ss')) {
+      addRegular(w.slice(0, -1));
+    }
+
+    return Array.from(set).sort((a, b) => b.length - a.length);
+  }
+
+  function _escapeRegex(str) {
+    return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  /**
+   * Find the target word or phrase (or simple inflection) inside an English sentence.
+   * Returns the exact matched substring from `sentence` for safe highlighting, or null.
+   * @param {string} sentence
+   * @param {string} targetWord
+   * @returns {string|null}
+   */
+  function findTargetMatch(sentence, targetWord) {
+    const s = String(sentence || '');
+    const t = String(targetWord || '').trim();
+    if (!s || !t) return null;
+
+    // 1. Exact case-insensitive whole-phrase match
+    const exactRe = new RegExp(`(^|[^A-Za-z])(${_escapeRegex(t)})(?=$|[^A-Za-z])`, 'i');
+    const exactM = s.match(exactRe);
+    if (exactM) return exactM[2];
+
+    // 2. Tokenized inflection match
+    const tokens = t.match(/[A-Za-z]+(?:'[A-Za-z]+)?/g) || [];
+    if (!tokens.length) return null;
+
+    if (tokens.length === 1) {
+      const forms = _wordInflections(tokens[0]).map(_escapeRegex).join('|');
+      const m = s.match(new RegExp(`(^|[^A-Za-z])(${forms})(?=$|[^A-Za-z])`, 'i'));
+      return m ? m[2] : null;
+    }
+
+    // Multi-word phrase: match inflected token sequence (allowing determiner flexibility for a/an/the)
+    const ARTICLES = new Set(['a', 'an', 'the']);
+    const seqParts = tokens.map((tok, idx) => {
+      const lower = tok.toLowerCase();
+      if (ARTICLES.has(lower) && idx > 0) {
+        return '(?:a|an|the|some|my|his|her|their|our)';
+      }
+      return `(?:${_wordInflections(tok).map(_escapeRegex).join('|')})`;
+    });
+    const seqRe = new RegExp(`(^|[^A-Za-z])(${seqParts.join('\\s+')})(?=$|[^A-Za-z])`, 'i');
+    const seqM = s.match(seqRe);
+    if (seqM) return seqM[2];
+
+    // Also allow dropping middle article (e.g. "took a note" matching "takes notes")
+    const withoutMiddleArt = tokens.filter((tok, idx) => !(idx > 0 && ARTICLES.has(tok.toLowerCase())));
+    if (withoutMiddleArt.length !== tokens.length && withoutMiddleArt.length >= 2) {
+      const compactParts = withoutMiddleArt.map((tok) => `(?:${_wordInflections(tok).map(_escapeRegex).join('|')})`);
+      const compactRe = new RegExp(`(^|[^A-Za-z])(${compactParts.join('\\s+')})(?=$|[^A-Za-z])`, 'i');
+      const compactM = s.match(compactRe);
+      if (compactM) return compactM[2];
+    }
+
+    // Leading article phrase (e.g. "a note" -> match "the note" or "notes")
+    if (ARTICLES.has(tokens[0].toLowerCase()) && tokens.length === 2) {
+      const nounForms = _wordInflections(tokens[1]).map(_escapeRegex).join('|');
+      const artNounRe = new RegExp(`(^|[^A-Za-z])((?:(?:a|an|the|my|his|her|some)\\s+)?(?:${nounForms}))(?=$|[^A-Za-z])`, 'i');
+      const artNounM = s.match(artNounRe);
+      if (artNounM) return artNounM[2];
+    }
+
+    return null;
+  }
+
+  /**
+   * Sentence quality gate for Qwen's single English example sentence.
+   * Rejects:
+   * - empty
+   * - non_latin (only Latin letters, digits, basic punctuation)
+   * - incomplete_sentence (cut off without ending ., !, or ?)
+   * - too_short (< 4 words) / too_long (> 14 words)
+   * - word_repetition (any word repeated 3+ times)
+   * - copied_fewshot (copied one of the few-shot example sentences)
+   * - missing_target (missing target word/phrase or simple inflection)
+   * @param {string} raw
+   * @param {string} targetWord
+   * @returns {{ valid: boolean, reason: string|null, sentence: string|null, matchedText: string|null }}
+   */
+  function validateSentenceOutput(raw, targetWord) {
+    if (typeof raw !== 'string' || !raw.trim()) {
+      return { valid: false, reason: 'empty', sentence: null, matchedText: null };
+    }
+
+    // Take first non-empty line before \n (strip code fences if any)
+    const strippedFences = raw
+      .replace(/^```[a-z]*\s*/gim, '')
+      .replace(/\s*```$/gim, '');
+    const firstLine = strippedFences
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .find(Boolean) || '';
+
+    let sentence = firstLine
+      .replace(/[\u2018\u2019\u02BC]/g, "'")
+      .replace(/[\u201C\u201D]/g, '"')
+      .replace(/\*\*|__|~~|`/g, '')
+      .replace(/^(?:word\s*:\s*[^->→]+?(?:->|→)\s*)/i, '')
+      .replace(/^(?:example|sentence|answer|output)\s*:\s*/i, '')
+      .trim();
+
+    if (
+      (sentence.startsWith('"') && sentence.endsWith('"'))
+      || (sentence.startsWith("'") && sentence.endsWith("'"))
+    ) {
+      sentence = sentence.slice(1, -1).trim();
+    }
+    sentence = sentence.replace(/\s+/g, ' ').trim();
+
+    if (!sentence) {
+      return { valid: false, reason: 'empty', sentence: null, matchedText: null };
+    }
+
+    // 1. Latin letters & basic punctuation only (must contain at least 3 ASCII letters)
+    if (!/^[A-Za-z0-9\s.,!?;:'"()-]+$/.test(sentence) || (sentence.match(/[A-Za-z]/g) || []).length < 3) {
+      return { valid: false, reason: 'non_latin', sentence: null, matchedText: null };
+    }
+
+    // 2. Reject cut-off sentences (must end with ., !, or ?)
+    if (!/[.!?]["']?$/.test(sentence)) {
+      return { valid: false, reason: 'incomplete_sentence', sentence: null, matchedText: null };
+    }
+
+    // 3. Word count: 4..14 words
+    const words = sentence.match(/[A-Za-z0-9]+(?:'[A-Za-z]+)?(?:-[A-Za-z0-9]+)*/g) || [];
+    if (words.length < SENTENCE_MIN_WORDS) {
+      return { valid: false, reason: 'too_short', sentence: null, matchedText: null };
+    }
+    if (words.length > SENTENCE_MAX_WORDS) {
+      return { valid: false, reason: 'too_long', sentence: null, matchedText: null };
+    }
+
+    // 4. No word repeated 3+ times
+    const counts = new Map();
+    for (const w of words) {
+      const lw = w.toLowerCase();
+      const next = (counts.get(lw) || 0) + 1;
+      if (next >= 3) {
+        return { valid: false, reason: 'word_repetition', sentence: null, matchedText: null };
+      }
+      counts.set(lw, next);
+    }
+
+    // 5. Must not copy few-shot examples
+    const normWords = words.map((w) => w.toLowerCase());
+    const normStr = normWords.join(' ');
+    for (const fs of EXAMPLE_FEWSHOTS) {
+      const fsWords = (fs.sentence.match(/[A-Za-z0-9]+(?:'[A-Za-z]+)?/g) || []).map((w) => w.toLowerCase());
+      const fsNorm = fsWords.join(' ');
+      if (normStr === fsNorm || normStr.includes(fsNorm) || fsNorm.includes(normStr)) {
+        return { valid: false, reason: 'copied_fewshot', sentence: null, matchedText: null };
+      }
+      if (fsWords.length >= 5) {
+        for (let i = 0; i <= fsWords.length - 5; i++) {
+          const ngram = fsWords.slice(i, i + 5).join(' ');
+          if (normStr.includes(ngram)) {
+            return { valid: false, reason: 'copied_fewshot', sentence: null, matchedText: null };
+          }
+        }
+      }
+    }
+
+    // 6. Must contain target word/phrase (or simple inflection)
+    let matchedText = null;
+    if (targetWord && String(targetWord).trim()) {
+      matchedText = findTargetMatch(sentence, targetWord);
+      if (!matchedText) {
+        return { valid: false, reason: 'missing_target', sentence: null, matchedText: null };
+      }
+    }
+
+    return { valid: true, reason: null, sentence, matchedText };
+  }
+
+  /**
    * Build the deterministic 錯誤原因 (always generated by code, never by AI).
    * @param {Object} facts
    * @returns {string}
@@ -275,6 +759,18 @@
   function buildDeterministicReason(facts) {
     if (App.ai.templates && typeof App.ai.templates.buildDeterministicReason === 'function') {
       return App.ai.templates.buildDeterministicReason(facts);
+    }
+    return '';
+  }
+
+  /**
+   * Build the deterministic 記憶提示 (always generated by code/template, never by AI).
+   * @param {Object} facts
+   * @returns {string}
+   */
+  function buildDeterministicTip(facts) {
+    if (App.ai.templates && typeof App.ai.templates.buildFallbackTip === 'function') {
+      return App.ai.templates.buildFallbackTip(facts);
     }
     return '';
   }
@@ -1046,8 +1542,10 @@
   }
 
   /**
-   * Feature A: Explain a learner mistake using the active/forced AI tier.
-   * Records every attempt (including raw output and rejection reason) for #/settings/ai.
+   * Feature A: Explain a learner mistake using code-built 錯誤原因 + code/template 記憶提示,
+   * and use the active AI tier (Qwen / Nano) ONLY to generate ONE short English example sentence
+   * (AI 例句) for the most-confused tile/word, guarded by validateSentenceOutput.
+   * Records the last 5 AI attempts (with timestamp, raw output, accepted/rejected, exact reason).
    * @param {Object} facts
    * @param {{ forceTier?: 'nano'|'qwen'|'template', signal?: AbortSignal, onProgress?: Function, onToken?: Function, onDevice?: Function, timeoutMs?: number }} [opts]
    * @returns {Promise<Object>}
@@ -1057,40 +1555,55 @@
     const timeoutMs = Number.isFinite(o.timeoutMs) ? o.timeoutMs : FIRST_TOKEN_TIMEOUT_MS;
     const status = await detect();
     const tier = o.forceTier || status.activeTier || 'template';
-    const lang = App.i18n ? App.i18n.lang() : 'zh-TW';
+    const codeReason = buildDeterministicReason(facts);
+    const codeTip = buildDeterministicTip(facts);
+    const target = pickTargetForExample(facts);
     let genStart = performance.now();
 
     function fallback(note, extra) {
       const ex = extra || {};
-      const tpl = App.ai.templates
-        ? App.ai.templates.explainMistake(facts)
-        : { why: '', tip: '', example: null };
       const elapsedMs = ex.elapsedMs || Math.max(1, Math.round(performance.now() - genStart));
       const fellBack = tier !== 'template';
+      const cardExample = target.targetCardExample || null;
+      const exampleSource = cardExample ? 'card' : null;
+      const matchedText = cardExample
+        ? (findTargetMatch(cardExample, target.targetWord) || target.targetWord || null)
+        : null;
 
-      _saveLastAttempt({
-        ts: Date.now(),
-        tier,
+      if (fellBack) {
+        _recordAttempt({
+          ts: Date.now(),
+          tier,
+          source: 'template',
+          exampleSource,
+          modelKey: ex.modelKey || null,
+          modelLabel: ex.modelLabel || null,
+          device: ex.device || null,
+          targetWord: target.targetWord || null,
+          accepted: false,
+          fellBack: true,
+          rejectionReason: ex.rejectionReason || note || null,
+          rawOutput: ex.rawOutput || null,
+          acceptedSentence: null,
+          firstTokenMs: ex.firstTokenMs || null,
+          elapsedMs,
+          tokenCount: ex.tokenCount || null,
+          tokensPerSec: ex.tokensPerSec || null,
+        });
+      }
+
+      return {
+        why: codeReason,
+        tip: codeTip,
+        example: cardExample,
+        exampleSource,
+        targetWord: target.targetWord || null,
+        targetMeaningZh: target.targetMeaningZh || null,
+        targetCardId: target.targetCardId || null,
+        matchedText,
         source: 'template',
         modelKey: ex.modelKey || null,
         modelLabel: ex.modelLabel || null,
-        device: ex.device || null,
-        fellBack,
-        rejectionReason: ex.rejectionReason || note || null,
-        rawOutput: ex.rawOutput || null,
-        parsedWhy: tpl.why,
-        parsedTip: tpl.tip,
-        firstTokenMs: ex.firstTokenMs || null,
-        elapsedMs,
-        tokenCount: ex.tokenCount || null,
-        tokensPerSec: ex.tokensPerSec || null,
-      });
-
-      return {
-        why: tpl.why,
-        tip: tpl.tip,
-        example: tpl.example,
-        source: 'template',
         device: ex.device || null,
         fellBack,
         note: note || null,
@@ -1102,21 +1615,23 @@
       return fallback(null, {});
     }
 
-    // ── Tier 1: Gemini Nano (+ Translator) ───────────────────────
+    if (!target.targetWord) {
+      return fallback('no_target', {});
+    }
+
+    // ── Tier 1: Gemini Nano (AI 例句 only; why + tip stay code/template) ──
     if (tier === 'nano' && App.ai.nano) {
-      const prompt = buildFeatureAPrompt(facts, { language: lang, targetTier: 'nano' });
       genStart = performance.now();
       let lastRaw = null;
-      let lastReason = 'invalid_json';
+      let lastReason = 'empty';
       let lastElapsed = 0;
 
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
           const res = await _runWithFirstTokenTimeout(
             (sig, markFirst) => App.ai.nano.generate({
-              systemPrompt: prompt.systemPrompt,
-              userPrompt: prompt.userPrompt,
-              schema: FEATURE_A_SCHEMA,
+              systemPrompt: 'Write one short, natural English example sentence using the given word or phrase. Reply with only the sentence.',
+              userPrompt: `Word: ${target.targetWord}`,
               signal: sig,
               onProgress: o.onProgress,
               onToken: (chunk, full) => {
@@ -1130,40 +1645,53 @@
           lastRaw = res.text;
           lastElapsed = res.elapsedMs;
 
-          const checked = parseFeatureAOutput(res.text, facts, { language: 'en', requireJson: false });
+          // Accept either plain sentence or JSON object with an example field
+          let candidate = res.text;
+          if (typeof candidate === 'string' && candidate.trim().startsWith('{')) {
+            const parsed = extractJsonObject(candidate);
+            if (parsed && typeof parsed.example === 'string') candidate = parsed.example;
+          }
+
+          const checked = validateSentenceOutput(candidate, target.targetWord);
           if (checked.valid) {
-            let { why, tip, example } = checked.data;
-            if (lang !== 'en') {
-              why = s2t(await App.ai.nano.translateEnToZh(why));
-              tip = s2t(await App.ai.nano.translateEnToZh(tip));
-            }
-            _saveLastAttempt({
+            _recordAttempt({
               ts: Date.now(),
               tier: 'nano',
               source: 'nano',
+              exampleSource: 'nano',
+              modelKey: 'nano',
+              modelLabel: 'Gemini Nano',
               device: 'nano',
+              targetWord: target.targetWord,
+              accepted: true,
               fellBack: false,
               rejectionReason: null,
               rawOutput: res.text,
-              parsedWhy: why,
-              parsedTip: tip,
+              acceptedSentence: checked.sentence,
               firstTokenMs: null,
               elapsedMs: res.elapsedMs,
               tokenCount: null,
               tokensPerSec: null,
             });
             return {
-              why,
-              tip,
-              example,
+              why: codeReason,
+              tip: codeTip,
+              example: checked.sentence,
+              exampleSource: 'nano',
+              targetWord: target.targetWord,
+              targetMeaningZh: target.targetMeaningZh || null,
+              targetCardId: target.targetCardId || null,
+              matchedText: checked.matchedText,
               source: 'nano',
+              modelKey: 'nano',
+              modelLabel: 'Gemini Nano',
               device: 'nano',
               fellBack: false,
               note: null,
               elapsedMs: res.elapsedMs,
             };
           }
-          lastReason = checked.reason || 'invalid_format';
+          lastReason = checked.reason || 'invalid_sentence';
         } catch (err) {
           if (err && err.name === 'AbortError') return fallback('aborted', { rawOutput: lastRaw });
           if (err && err.name === 'TimeoutError') return fallback('timeout', { rawOutput: lastRaw });
@@ -1173,13 +1701,10 @@
       return fallback(lastReason, { rawOutput: lastRaw, elapsedMs: lastElapsed });
     }
 
-    // ── Tier 2: Qwen 2.5 (Code generates 錯誤原因; Qwen writes ONLY 1-sentence 記憶提示) ─
+    // ── Tier 2: Qwen 2.5 (Code builds 錯誤原因 + 記憶提示; Qwen writes ONLY 1 English AI 例句) ─
     if (tier === 'qwen' && App.ai.qwen) {
-      const codeReason = buildDeterministicReason(facts);
-      const messages = buildTipMessages(codeReason, facts, { language: lang });
-      const pair = pickFocusPair(facts);
+      const messages = buildExampleMessages(target.targetWord);
       const modelCfg = App.ai.qwen.getSelectedModel ? App.ai.qwen.getSelectedModel() : { key: '0.5b', label: 'Qwen 2.5 0.5B' };
-      const cardExample = facts && facts.game !== 'wall' && facts.cardExample ? String(facts.cardExample).trim() : null;
       const cacheInfo = App.ai.qwen.inspectCache ? await App.ai.qwen.inspectCache(modelCfg.key) : { cached: false };
       let loadMs = 0;
       let activeDevice = null;
@@ -1194,7 +1719,6 @@
       } catch (err) {
         if (err && err.name === 'AbortError') return fallback('aborted', { modelKey: modelCfg.key, modelLabel: modelCfg.label });
         const errCode = classifyInitError(err, { cachedBefore: Boolean(cacheInfo && cacheInfo.cached) });
-        // If 1.5B failed to load (e.g. WASM Aborted / GPU memory), auto-switch back to 0.5B for next attempt
         let switched = false;
         if (errCode === 'load_error' && modelCfg.key === '1.5b' && App.store && App.store.settings) {
           App.store.settings.update({ qwenModel: '0.5b' });
@@ -1212,17 +1736,16 @@
 
       genStart = performance.now();
       let lastRaw = null;
-      let lastReason = 'quality_rejected';
+      let lastReason = 'missing_target';
       let lastResMeta = { device: activeDevice, modelKey: modelCfg.key, modelLabel: modelCfg.label };
 
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
-          const retryPrompt = pair
-            ? (lang === 'en' ? `Compare ${pair.wordA} and ${pair.wordB}:` : `比較 ${pair.wordA} 和 ${pair.wordB} 的差別：`)
-            : (lang === 'en' ? 'Explain the key difference:' : `比較 ${facts.expected || facts.word || '這題'} 的重點：`);
           const runMsgs = attempt === 0
             ? messages
-            : messages.concat([{ role: 'user', content: retryPrompt }]);
+            : messages.concat([
+              { role: 'user', content: `Write one short English sentence containing "${target.targetWord}":` },
+            ]);
 
           const res = await _runWithFirstTokenTimeout(
             (sig, markFirst) => App.ai.qwen.generate({
@@ -1231,7 +1754,8 @@
               temperature: 0.3,
               topP: 0.9,
               noRepeatNgramSize: 3,
-              stopOnSentence: true,
+              stopOnNewline: true,
+              stopOnSentence: false,
               signal: sig,
               onToken: (chunk, full) => {
                 if (chunk) markFirst();
@@ -1255,20 +1779,22 @@
             rawOutput: res.text,
           };
 
-          const checked = validateTipOutput(res.text, facts, { language: lang });
+          const checked = validateSentenceOutput(res.text, target.targetWord);
           if (checked.valid) {
-            _saveLastAttempt({
+            _recordAttempt({
               ts: Date.now(),
               tier: 'qwen',
               source: 'qwen',
+              exampleSource: 'qwen',
               modelKey: lastResMeta.modelKey,
               modelLabel: lastResMeta.modelLabel,
               device: activeDevice,
+              targetWord: target.targetWord,
+              accepted: true,
               fellBack: false,
               rejectionReason: null,
               rawOutput: res.text,
-              parsedWhy: codeReason,
-              parsedTip: checked.tip,
+              acceptedSentence: checked.sentence,
               firstTokenMs: res.firstTokenMs || null,
               elapsedMs: res.elapsedMs,
               tokenCount: res.tokenCount || null,
@@ -1276,8 +1802,13 @@
             });
             return {
               why: codeReason,
-              tip: checked.tip,
-              example: cardExample,
+              tip: codeTip,
+              example: checked.sentence,
+              exampleSource: 'qwen',
+              targetWord: target.targetWord,
+              targetMeaningZh: target.targetMeaningZh || null,
+              targetCardId: target.targetCardId || null,
+              matchedText: checked.matchedText,
               source: 'qwen',
               modelKey: lastResMeta.modelKey,
               modelLabel: lastResMeta.modelLabel,
@@ -1290,7 +1821,7 @@
               loadMs,
             };
           }
-          lastReason = checked.reason || 'quality_rejected';
+          lastReason = checked.reason || 'invalid_sentence';
         } catch (err) {
           if (err && err.name === 'AbortError') return fallback('aborted', lastResMeta);
           if (err && err.name === 'TimeoutError') return fallback('timeout', lastResMeta);
@@ -1320,16 +1851,27 @@
     FIRST_TOKEN_TIMEOUT_MS,
     GENERATION_TIMEOUT_MS: FIRST_TOKEN_TIMEOUT_MS,
     FEATURE_A_MAX_TOKENS,
+    SENTENCE_MIN_WORDS,
+    SENTENCE_MAX_WORDS,
     MAX_TIP_CHARS,
+    MAX_ATTEMPTS_LOG,
+    EXAMPLE_FEWSHOTS,
     FEATURE_A_SCHEMA,
     s2t,
     detect,
     warmUpIfCached,
     getLastAttempt,
+    getLastAttempts,
+    clearAttemptsLog,
     pickFocusPair,
+    pickTargetForExample,
     buildDeterministicReason,
+    buildDeterministicTip,
+    buildExampleMessages,
+    findTargetMatch,
+    validateSentenceOutput,
     buildTipMessages,
-    buildFeatureAMessages: buildTipMessages,
+    buildFeatureAMessages: buildExampleMessages,
     buildFeatureAPrompt,
     detectPromptEcho,
     extractRelevanceAnchors,

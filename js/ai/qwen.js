@@ -315,8 +315,9 @@
             let streamed = '';
             let interruptedEarly = false;
 
-            const stopOnSentence = payload.stopOnSentence !== false;
-            const interruptCriteria = (stopOnSentence && InterruptableStoppingCriteriaCls)
+            const stopOnNewline = Boolean(payload.stopOnNewline);
+            const stopOnSentence = !stopOnNewline && payload.stopOnSentence !== false;
+            const interruptCriteria = ((stopOnNewline || stopOnSentence) && InterruptableStoppingCriteriaCls)
               ? new InterruptableStoppingCriteriaCls()
               : null;
             let stoppingCriteria = undefined;
@@ -340,7 +341,10 @@
                   }
                   streamed += chunk;
                   self.postMessage({ id, type: 'token', chunk, full: streamed, firstTokenMs });
-                  if (interruptCriteria && streamed.trim().length >= 6 && /[。\\n]/.test(streamed)) {
+                  if (interruptCriteria && stopOnNewline && streamed.trim().length >= 4 && /\\r?\\n/.test(streamed)) {
+                    interruptedEarly = true;
+                    interruptCriteria.interrupt();
+                  } else if (interruptCriteria && stopOnSentence && streamed.trim().length >= 6 && /[。\\n]/.test(streamed)) {
                     interruptedEarly = true;
                     interruptCriteria.interrupt();
                   }
@@ -350,7 +354,7 @@
 
             const useSample = typeof payload.temperature === 'number' && payload.temperature > 0;
             const genOpts = {
-              max_new_tokens: payload.maxNewTokens || 60,
+              max_new_tokens: payload.maxNewTokens || 30,
               do_sample: useSample,
               no_repeat_ngram_size: payload.noRepeatNgramSize || 3,
               return_full_text: false,
@@ -597,7 +601,7 @@
 
   /**
    * Run text generation in the Qwen Blob Worker.
-   * @param {{ messages?: Array, systemPrompt?: string, userPrompt?: string, maxNewTokens?: number, temperature?: number, topP?: number, noRepeatNgramSize?: number, stopOnSentence?: boolean, modelKey?: string, onProgress?: Function, onToken?: Function, signal?: AbortSignal }} opts
+   * @param {{ messages?: Array, systemPrompt?: string, userPrompt?: string, maxNewTokens?: number, temperature?: number, topP?: number, noRepeatNgramSize?: number, stopOnSentence?: boolean, stopOnNewline?: boolean, modelKey?: string, onProgress?: Function, onToken?: Function, signal?: AbortSignal }} opts
    */
   async function generate(opts) {
     const o = opts || {};
@@ -612,11 +616,12 @@
       messages: Array.isArray(o.messages) ? o.messages : null,
       systemPrompt: o.systemPrompt || '',
       userPrompt: o.userPrompt || '',
-      maxNewTokens: o.maxNewTokens || 60,
+      maxNewTokens: o.maxNewTokens || 30,
       temperature: typeof o.temperature === 'number' ? o.temperature : 0.3,
       topP: typeof o.topP === 'number' ? o.topP : 0.9,
       noRepeatNgramSize: o.noRepeatNgramSize || 3,
       stopOnSentence: o.stopOnSentence !== false,
+      stopOnNewline: Boolean(o.stopOnNewline),
     }, { modelKey: cfg.key, onToken: o.onToken, signal: o.signal });
 
     m.lastFirstTokenMs = res.firstTokenMs;

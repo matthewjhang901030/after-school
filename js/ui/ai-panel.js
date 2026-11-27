@@ -57,6 +57,44 @@
     return _t('ai.note_fallback');
   }
 
+  function _buildHighlightedSentence(sentence, matchedText, targetWord) {
+    const { el } = App.dom;
+    const text = String(sentence || '');
+    const container = el('div', { className: 'ai-result-text ai-example-sentence', 'data-ai-example': 'true' });
+    if (!text) return container;
+
+    let needle = matchedText ? String(matchedText).trim() : '';
+    if (!needle && targetWord && App.ai && typeof App.ai.findTargetMatch === 'function') {
+      needle = App.ai.findTargetMatch(text, targetWord) || '';
+    }
+    if (!needle && targetWord) needle = String(targetWord).trim();
+
+    if (needle) {
+      const esc = needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const m = text.match(new RegExp(`(^|[^A-Za-z])(${esc})(?=$|[^A-Za-z])`, 'i'));
+      let idx = -1;
+      let len = needle.length;
+      if (m) {
+        idx = m.index + m[1].length;
+        len = m[2].length;
+      } else {
+        idx = text.toLowerCase().indexOf(needle.toLowerCase());
+      }
+      if (idx >= 0) {
+        const before = text.slice(0, idx);
+        const hit = text.slice(idx, idx + len);
+        const after = text.slice(idx + len);
+        if (before) container.appendChild(document.createTextNode(before));
+        container.appendChild(el('mark', { className: 'ai-highlight', 'data-ai-highlight': 'true', text: hit }));
+        if (after) container.appendChild(document.createTextNode(after));
+        return container;
+      }
+    }
+
+    container.textContent = text;
+    return container;
+  }
+
   /**
    * Ensure AI backend modules & stylesheet are loaded (lazy under file://).
    * @returns {Promise<void>}
@@ -128,11 +166,32 @@
       ];
 
       if (res.example) {
+        const isAiExample = res.exampleSource === 'qwen' || res.exampleSource === 'nano';
+        const rowLabel = isAiExample ? _t('ai.label_ai_example') : _t('ai.example_source_card');
+        const badgeText = isAiExample
+          ? _sourceLabel(res.exampleSource, res.device, res.modelLabel)
+          : _t('ai.example_source_card');
+        const exampleChildren = [
+          el('div', { className: 'ai-example-head' }, [
+            el('span', { className: 'ai-result-label', style: 'margin: 0;', text: rowLabel }),
+            el('span', { className: 'ai-example-badge', 'data-ai-example-badge': 'true', text: badgeText }),
+          ]),
+          _buildHighlightedSentence(res.example, res.matchedText, res.targetWord),
+        ];
+        if (res.targetMeaningZh) {
+          const meaningLine = res.targetWord
+            ? `${res.targetWord}：${res.targetMeaningZh}`
+            : res.targetMeaningZh;
+          exampleChildren.push(
+            el('div', { className: 'ai-example-meaning', 'data-ai-example-meaning': 'true', text: meaningLine })
+          );
+        }
         rows.push(
-          el('div', { className: 'ai-result-row' }, [
-            el('div', { className: 'ai-result-label', text: _t('ai.label_example') }),
-            el('div', { className: 'ai-result-text', 'data-ai-example': 'true', text: res.example }),
-          ])
+          el('div', {
+            className: 'ai-result-row ai-example-row',
+            'data-ai-example-row': 'true',
+            'data-example-source': res.exampleSource || 'ai',
+          }, exampleChildren)
         );
       }
 
@@ -141,13 +200,14 @@
       }
 
       const actions = [];
-      if (facts && facts.cardId && res.tip && App.store && App.store.cards) {
+      const saveCardId = (facts && facts.cardId) || res.targetCardId || null;
+      if (saveCardId && res.tip && App.store && App.store.cards) {
         const saveBtn = el('button', {
           type: 'button',
           className: 'btn ' + (savedTip ? 'btn-ghost' : 'btn-secondary'),
           disabled: savedTip,
           onClick: () => {
-            App.store.cards.update(facts.cardId, { aiTip: res.tip });
+            App.store.cards.update(saveCardId, { aiTip: res.tip });
             savedTip = true;
             saveBtn.disabled = true;
             saveBtn.textContent = `○ ${_t('ai.saved_to_card')}`;
@@ -207,10 +267,20 @@
       const instantReasonText = (App.ai && typeof App.ai.buildDeterministicReason === 'function')
         ? App.ai.buildDeterministicReason(facts)
         : '';
+      const instantTipText = (App.ai && typeof App.ai.buildDeterministicTip === 'function')
+        ? App.ai.buildDeterministicTip(facts)
+        : '';
+
       const instantReasonRow = instantReasonText
         ? el('div', { className: 'ai-result-row' }, [
           el('div', { className: 'ai-result-label', text: _t('ai.label_why') }),
           el('div', { className: 'ai-result-text', text: instantReasonText }),
+        ])
+        : null;
+      const instantTipRow = instantTipText
+        ? el('div', { className: 'ai-result-row' }, [
+          el('div', { className: 'ai-result-label', text: _t('ai.label_tip') }),
+          el('div', { className: 'ai-result-text', text: instantTipText }),
         ])
         : null;
 
@@ -218,6 +288,7 @@
       bodySlot.appendChild(
         el('div', { className: 'ai-result-block', 'data-ai-state': 'loading' }, [
           instantReasonRow,
+          instantTipRow,
           progressWrap,
           streamBox,
           el('div', { className: 'ai-panel-actions' }, [stopBtn, tplBtn]),
@@ -233,6 +304,18 @@
               el('div', { className: 'ai-result-row' }, [
                 el('div', { className: 'ai-result-label', text: _t('ai.label_why') }),
                 el('div', { className: 'ai-result-text', text: rText }),
+              ]),
+              progressWrap
+            );
+          }
+        }
+        if (!instantTipRow && App.ai && typeof App.ai.buildDeterministicTip === 'function') {
+          const tText = App.ai.buildDeterministicTip(facts);
+          if (tText) {
+            bodySlot.firstElementChild.insertBefore(
+              el('div', { className: 'ai-result-row' }, [
+                el('div', { className: 'ai-result-label', text: _t('ai.label_tip') }),
+                el('div', { className: 'ai-result-text', text: tText }),
               ]),
               progressWrap
             );
