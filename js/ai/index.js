@@ -24,10 +24,23 @@
 
   /** English-only few-shot examples for Feature A AI Example generation. */
   const EXAMPLE_FEWSHOTS = [
-    { word: 'took a note', sentence: 'I took a note in class.' },
-    { word: 'umbrella', sentence: 'She brought an umbrella for the rain.' },
-    { word: 'bicycle', sentence: 'He rode his bicycle to the park.' },
+    { word: 'took a note', pos: 'phrase', meaningZh: '做筆記', sentence: 'I took a note in class.' },
+    { word: 'umbrella', pos: 'n.', meaningZh: '雨傘', sentence: 'She brought an umbrella for the rain.' },
+    { word: 'bicycle', pos: 'n.', meaningZh: '腳踏車', sentence: 'He rode his bicycle to the park.' },
   ];
+
+  const POS_PROMPT_LABELS = {
+    'n.': 'noun',
+    'v.': 'verb',
+    'adj.': 'adjective',
+    'adv.': 'adverb',
+    'prep.': 'preposition',
+    'conj.': 'conjunction',
+    'pron.': 'pronoun',
+    'det.': 'determiner',
+    'aux.': 'auxiliary verb',
+    'int.': 'interjection',
+  };
 
   /** Common irregular verb, comparative, and plural families for inflection matching. */
   const IRREGULAR_FAMILIES = [
@@ -433,9 +446,13 @@
   function pickTargetForExample(facts) {
     const f = facts || {};
     const meaningMap = new Map();
+    const posMap = new Map();
     if (Array.isArray(f.cardMeanings)) {
       for (const m of f.cardMeanings) {
-        if (m && m.word && m.zh) meaningMap.set(String(m.word).trim().toLowerCase(), String(m.zh).trim());
+        if (!m || !m.word) continue;
+        const k = String(m.word).trim().toLowerCase();
+        if (m.zh) meaningMap.set(k, String(m.zh).trim());
+        if (m.pos) posMap.set(k, String(m.pos).trim());
       }
     }
 
@@ -466,12 +483,16 @@
       const targetMeaningZh = (chosenCard && chosenCard.zh)
         || meaningMap.get(normChosen)
         || null;
+      const targetPos = (chosenCard && chosenCard.pos)
+        || posMap.get(normChosen)
+        || null;
       const targetCardExample = chosenCard && chosenCard.hasRealExample && chosenCard.example
         ? String(chosenCard.example).trim()
         : null;
 
       return {
         targetWord: String(chosenWord || '').trim(),
+        targetPos,
         targetMeaningZh,
         targetCardId: chosenCard ? chosenCard.id : (f.cardId || null),
         targetCardExample,
@@ -488,34 +509,51 @@
     const targetMeaningZh = (f.meaningZh && String(f.meaningZh).trim())
       || (card && card.zh)
       || null;
+    const targetPos = (f.pos && String(f.pos).trim())
+      || (card && card.pos)
+      || null;
     const targetCardExample = (f.cardExample && String(f.cardExample).trim())
       || (card && card.hasRealExample && card.example ? String(card.example).trim() : null);
 
     return {
       targetWord: word,
+      targetPos,
       targetMeaningZh,
       targetCardId: (card && card.id) || f.cardId || null,
       targetCardExample,
     };
   }
 
+  function _formatWordPrompt(targetWord, meta) {
+    const word = String(targetWord || '').trim();
+    const m = meta || {};
+    const rawPos = m.pos ? String(m.pos).trim() : '';
+    const posLabel = POS_PROMPT_LABELS[rawPos.toLowerCase()] || rawPos;
+    const rawZh = m.meaningZh ? String(m.meaningZh).trim() : '';
+    const shortZh = rawZh ? rawZh.split(/[；;]/)[0].trim() : '';
+    const hints = [posLabel, shortZh].filter(Boolean);
+    return hints.length ? `Word: ${word} (${hints.join(', ')})` : `Word: ${word}`;
+  }
+
   /**
-   * Build English-only few-shot chat messages asking Qwen for ONE short English example sentence.
+   * Build English-only few-shot chat messages asking Qwen for ONE short English example sentence,
+   * supplying part of speech and Chinese meaning from card data when available.
    * @param {string} targetWord
+   * @param {{ pos?: string|null, meaningZh?: string|null }} [meta]
    * @returns {Array<{ role: string, content: string }>}
    */
-  function buildExampleMessages(targetWord) {
+  function buildExampleMessages(targetWord, meta) {
     const msgs = [
       {
         role: 'system',
-        content: 'Write one short, natural English example sentence using the given word or phrase. Reply with only the sentence.',
+        content: 'Write one short, natural English example sentence using the given word or phrase once. Reply with only the sentence.',
       },
     ];
     for (const fs of EXAMPLE_FEWSHOTS) {
-      msgs.push({ role: 'user', content: `Word: ${fs.word}` });
+      msgs.push({ role: 'user', content: _formatWordPrompt(fs.word, { pos: fs.pos, meaningZh: fs.meaningZh }) });
       msgs.push({ role: 'assistant', content: fs.sentence });
     }
-    msgs.push({ role: 'user', content: `Word: ${String(targetWord || '').trim()}` });
+    msgs.push({ role: 'user', content: _formatWordPrompt(targetWord, meta) });
     return msgs;
   }
 
@@ -582,34 +620,47 @@
     return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
+  function _collectBoundaryMatches(sentence, pattern) {
+    const s = String(sentence || '');
+    const re = new RegExp(pattern, 'gi');
+    const hits = [];
+    let m;
+    while ((m = re.exec(s)) !== null) {
+      const start = m.index;
+      const end = start + m[0].length;
+      const prev = start > 0 ? s[start - 1] : '';
+      const next = end < s.length ? s[end] : '';
+      if (!/[A-Za-z]/.test(prev) && !/[A-Za-z]/.test(next)) {
+        hits.push(m[0]);
+      }
+      if (m[0].length === 0) re.lastIndex++;
+    }
+    return hits;
+  }
+
   /**
-   * Find the target word or phrase (or simple inflection) inside an English sentence.
-   * Returns the exact matched substring from `sentence` for safe highlighting, or null.
+   * Find ALL non-overlapping occurrences of the target word/phrase (or simple inflection)
+   * inside an English sentence.
    * @param {string} sentence
    * @param {string} targetWord
-   * @returns {string|null}
+   * @returns {string[]}
    */
-  function findTargetMatch(sentence, targetWord) {
+  function findTargetMatches(sentence, targetWord) {
     const s = String(sentence || '');
     const t = String(targetWord || '').trim();
-    if (!s || !t) return null;
+    if (!s || !t) return [];
 
-    // 1. Exact case-insensitive whole-phrase match
-    const exactRe = new RegExp(`(^|[^A-Za-z])(${_escapeRegex(t)})(?=$|[^A-Za-z])`, 'i');
-    const exactM = s.match(exactRe);
-    if (exactM) return exactM[2];
-
-    // 2. Tokenized inflection match
     const tokens = t.match(/[A-Za-z]+(?:'[A-Za-z]+)?/g) || [];
-    if (!tokens.length) return null;
+    if (!tokens.length) {
+      return _collectBoundaryMatches(s, _escapeRegex(t));
+    }
 
     if (tokens.length === 1) {
       const forms = _wordInflections(tokens[0]).map(_escapeRegex).join('|');
-      const m = s.match(new RegExp(`(^|[^A-Za-z])(${forms})(?=$|[^A-Za-z])`, 'i'));
-      return m ? m[2] : null;
+      return _collectBoundaryMatches(s, `(?:${forms})`);
     }
 
-    // Multi-word phrase: match inflected token sequence (allowing determiner flexibility for a/an/the)
+    // Multi-word phrase: check inflected token sequence first (also covers exact phrase)
     const ARTICLES = new Set(['a', 'an', 'the']);
     const seqParts = tokens.map((tok, idx) => {
       const lower = tok.toLowerCase();
@@ -618,28 +669,72 @@
       }
       return `(?:${_wordInflections(tok).map(_escapeRegex).join('|')})`;
     });
-    const seqRe = new RegExp(`(^|[^A-Za-z])(${seqParts.join('\\s+')})(?=$|[^A-Za-z])`, 'i');
-    const seqM = s.match(seqRe);
-    if (seqM) return seqM[2];
+    const seqHits = _collectBoundaryMatches(s, seqParts.join('\\s+'));
+    if (seqHits.length) return seqHits;
 
-    // Also allow dropping middle article (e.g. "took a note" matching "takes notes")
+    // Allow dropping middle article (e.g. "took a note" matching "takes notes")
     const withoutMiddleArt = tokens.filter((tok, idx) => !(idx > 0 && ARTICLES.has(tok.toLowerCase())));
     if (withoutMiddleArt.length !== tokens.length && withoutMiddleArt.length >= 2) {
       const compactParts = withoutMiddleArt.map((tok) => `(?:${_wordInflections(tok).map(_escapeRegex).join('|')})`);
-      const compactRe = new RegExp(`(^|[^A-Za-z])(${compactParts.join('\\s+')})(?=$|[^A-Za-z])`, 'i');
-      const compactM = s.match(compactRe);
-      if (compactM) return compactM[2];
+      const compactHits = _collectBoundaryMatches(s, compactParts.join('\\s+'));
+      if (compactHits.length) return compactHits;
     }
 
-    // Leading article phrase (e.g. "a note" -> match "the note" or "notes")
+    // Leading article phrase (e.g. "a note" -> match "a note", "the note", "notes")
     if (ARTICLES.has(tokens[0].toLowerCase()) && tokens.length === 2) {
       const nounForms = _wordInflections(tokens[1]).map(_escapeRegex).join('|');
-      const artNounRe = new RegExp(`(^|[^A-Za-z])((?:(?:a|an|the|my|his|her|some)\\s+)?(?:${nounForms}))(?=$|[^A-Za-z])`, 'i');
-      const artNounM = s.match(artNounRe);
-      if (artNounM) return artNounM[2];
+      const artHits = _collectBoundaryMatches(s, `(?:(?:a|an|the|my|his|her|some)\\s+)?(?:${nounForms})`);
+      if (artHits.length) return artHits;
     }
 
-    return null;
+    return _collectBoundaryMatches(s, _escapeRegex(t));
+  }
+
+  /**
+   * Find the first target word/phrase (or simple inflection) inside an English sentence.
+   * @param {string} sentence
+   * @param {string} targetWord
+   * @returns {string|null}
+   */
+  function findTargetMatch(sentence, targetWord) {
+    const matches = findTargetMatches(sentence, targetWord);
+    return matches.length ? matches[0] : null;
+  }
+
+  /**
+   * Detect English indefinite article errors ("a" before vowel-sound word like "a eraser" /
+   * "a umbrella", or "an" before consonant-sound word like "an book" / "an university").
+   * Handles standard sound exceptions (silent-h hour/honest/honor/heir/herb, /juː/ university/
+   * uniform/unit/useful/user/European, /w/ one/once, and vowel-sound acronyms like MBA/HTML).
+   * @param {string} sentence
+   * @returns {boolean}
+   */
+  function hasArticleError(sentence) {
+    const s = String(sentence || '');
+    const re = /\b(a|an)\s+([A-Za-z][A-Za-z'-]*)/gi;
+    let m;
+    while ((m = re.exec(s)) !== null) {
+      const art = m[1].toLowerCase();
+      const nextRaw = m[2];
+      const next = nextRaw.toLowerCase();
+
+      const isSilentH = /^(?:hour|hours|hourly|honest|honestly|honesty|honor|honors|honorable|honour|honourable|heir|heirs|heiress|herb|herbs|herbal)$/.test(next);
+      const isVowelAcronym = /^[FHLMNRSX][A-Z0-9-]{1,}$/.test(nextRaw) || /^x-ray/i.test(nextRaw);
+      const isConsonantVowelSpell = /^(?:uni(?:t|ts|form|forms|on|ons|que|verse|versal|versity|versities|corn|cycle)|use(?:r|rs|d|ful|less|s)?|usage|usual|usually|utensil|utensils|utility|utilities|ukulele|uranium|europ[a-z]*|euro|eulogy|one|once)(?:-|$)/.test(next);
+
+      let needsAn;
+      if (isSilentH || isVowelAcronym) {
+        needsAn = true;
+      } else if (isConsonantVowelSpell) {
+        needsAn = false;
+      } else {
+        needsAn = /^[aeiou]/.test(next);
+      }
+
+      if (art === 'a' && needsAn) return true;
+      if (art === 'an' && !needsAn) return true;
+    }
+    return false;
   }
 
   /**
@@ -651,7 +746,9 @@
    * - too_short (< 4 words) / too_long (> 14 words)
    * - word_repetition (any word repeated 3+ times)
    * - copied_fewshot (copied one of the few-shot example sentences)
+   * - article_error (wrong a/an article before vowel/consonant sound)
    * - missing_target (missing target word/phrase or simple inflection)
+   * - target_repeated (target word/phrase appears more than once)
    * @param {string} raw
    * @param {string} targetWord
    * @returns {{ valid: boolean, reason: string|null, sentence: string|null, matchedText: string|null }}
@@ -739,13 +836,22 @@
       }
     }
 
-    // 6. Must contain target word/phrase (or simple inflection)
+    // 6. Reject wrong indefinite articles (a/an)
+    if (hasArticleError(sentence)) {
+      return { valid: false, reason: 'article_error', sentence: null, matchedText: null };
+    }
+
+    // 7. Must contain target word/phrase (or simple inflection) exactly ONCE
     let matchedText = null;
     if (targetWord && String(targetWord).trim()) {
-      matchedText = findTargetMatch(sentence, targetWord);
-      if (!matchedText) {
+      const matches = findTargetMatches(sentence, targetWord);
+      if (matches.length === 0) {
         return { valid: false, reason: 'missing_target', sentence: null, matchedText: null };
       }
+      if (matches.length > 1) {
+        return { valid: false, reason: 'target_repeated', sentence: null, matchedText: null };
+      }
+      matchedText = matches[0];
     }
 
     return { valid: true, reason: null, sentence, matchedText };
@@ -1630,8 +1736,8 @@
         try {
           const res = await _runWithFirstTokenTimeout(
             (sig, markFirst) => App.ai.nano.generate({
-              systemPrompt: 'Write one short, natural English example sentence using the given word or phrase. Reply with only the sentence.',
-              userPrompt: `Word: ${target.targetWord}`,
+              systemPrompt: 'Write one short, natural English example sentence using the given word or phrase once. Reply with only the sentence.',
+              userPrompt: _formatWordPrompt(target.targetWord, { pos: target.targetPos, meaningZh: target.targetMeaningZh }),
               signal: sig,
               onProgress: o.onProgress,
               onToken: (chunk, full) => {
@@ -1703,7 +1809,10 @@
 
     // ── Tier 2: Qwen 2.5 (Code builds 錯誤原因 + 記憶提示; Qwen writes ONLY 1 English AI 例句) ─
     if (tier === 'qwen' && App.ai.qwen) {
-      const messages = buildExampleMessages(target.targetWord);
+      const messages = buildExampleMessages(target.targetWord, {
+        pos: target.targetPos,
+        meaningZh: target.targetMeaningZh,
+      });
       const modelCfg = App.ai.qwen.getSelectedModel ? App.ai.qwen.getSelectedModel() : { key: '0.5b', label: 'Qwen 2.5 0.5B' };
       const cacheInfo = App.ai.qwen.inspectCache ? await App.ai.qwen.inspectCache(modelCfg.key) : { cached: false };
       let loadMs = 0;
@@ -1868,7 +1977,9 @@
     buildDeterministicReason,
     buildDeterministicTip,
     buildExampleMessages,
+    findTargetMatches,
     findTargetMatch,
+    hasArticleError,
     validateSentenceOutput,
     buildTipMessages,
     buildFeatureAMessages: buildExampleMessages,

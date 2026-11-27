@@ -1793,6 +1793,42 @@
         assert.equal(gCopy.valid, false);
         assert.equal(gCopy.reason, 'copied_fewshot');
 
+        // Exact Chrome bad sentence: "It's a eraser that I'm using as the eraser." -> MUST be rejected
+        const gChromeBad = ai.validateSentenceOutput("It's a eraser that I'm using as the eraser.", 'eraser');
+        assert.equal(gChromeBad.valid, false, 'Chrome bad sentence with wrong article & repeated target must be rejected');
+        assert.ok(gChromeBad.reason === 'article_error' || gChromeBad.reason === 'target_repeated');
+
+        // Article error checks ("a" before vowel sound, "an" before consonant sound)
+        const gArt1 = ai.validateSentenceOutput("It's a eraser on my desk.", 'eraser');
+        assert.equal(gArt1.valid, false);
+        assert.equal(gArt1.reason, 'article_error');
+
+        const gArt2 = ai.validateSentenceOutput('She carried a umbrella to school.', 'umbrella');
+        assert.equal(gArt2.valid, false);
+        assert.equal(gArt2.reason, 'article_error');
+
+        const gArt3 = ai.validateSentenceOutput('He bought an book yesterday.', 'book');
+        assert.equal(gArt3.valid, false);
+        assert.equal(gArt3.reason, 'article_error');
+
+        // Sound exceptions must NOT be falsely flagged
+        assert.equal(ai.validateSentenceOutput('She studies at a university downtown.', 'university').valid, true);
+        assert.equal(ai.validateSentenceOutput('We waited for an hour near the station.', 'hour').valid, true);
+
+        // Target repeated more than once -> target_repeated
+        const gTargetRep = ai.validateSentenceOutput('She used an eraser to clean the eraser.', 'eraser');
+        assert.equal(gTargetRep.valid, false);
+        assert.equal(gTargetRep.reason, 'target_repeated');
+
+        // Valid natural sentence for eraser -> MUST pass
+        const gValidEraser = ai.validateSentenceOutput('I borrowed an eraser from my classmate.', 'eraser');
+        assert.equal(gValidEraser.valid, true, 'Natural valid sentence must pass');
+        assert.equal(gValidEraser.matchedText, 'eraser');
+
+        // Prompt includes POS and Chinese meaning from card data
+        const eraserMsgs = ai.buildExampleMessages('eraser', { pos: 'n.', meaningZh: '橡皮擦' });
+        assert.equal(eraserMsgs[eraserMsgs.length - 1].content, 'Word: eraser (noun, 橡皮擦)', 'Prompt includes POS + Chinese meaning');
+
         // Accepts simple inflections (take/took/takes/taking/taken) and stops at first newline
         const gInflect1 = ai.validateSentenceOutput('She is taking a note right now.\nAnother line here.', 'took a note');
         assert.equal(gInflect1.valid, true, 'Inflection "taking a note" accepted for target "took a note"');
