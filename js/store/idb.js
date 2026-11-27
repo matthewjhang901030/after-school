@@ -138,5 +138,55 @@
     });
   }
 
-  App.store.idb = { put, getVector, del, clearModel };
+  /**
+   * Batch-store multiple embedding vectors in a single readwrite transaction (M7).
+   * @param {string} modelId
+   * @param {Array<{ cardId: string, vector: number[] }>} entries
+   * @returns {Promise<number>}
+   */
+  function putMany(modelId, entries) {
+    if (!Array.isArray(entries) || !entries.length) return Promise.resolve(0);
+    return _open().then(function (db) {
+      return new Promise(function (resolve, reject) {
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const str = tx.objectStore(STORE_NAME);
+        const now = Date.now();
+        for (const item of entries) {
+          if (!item || !item.cardId || !Array.isArray(item.vector)) continue;
+          str.put({ modelId, cardId: item.cardId, vector: item.vector, updatedAt: now }, _key(modelId, item.cardId));
+        }
+        tx.oncomplete = function () { resolve(entries.length); };
+        tx.onerror = function (e) { reject(e.target.error); };
+      });
+    });
+  }
+
+  /**
+   * Batch-retrieve embedding vectors for multiple cardIds in a single readonly transaction (M7).
+   * @param {string} modelId
+   * @param {string[]} cardIds
+   * @returns {Promise<Map<string, number[]>>}
+   */
+  function getMany(modelId, cardIds) {
+    const out = new Map();
+    if (!Array.isArray(cardIds) || !cardIds.length) return Promise.resolve(out);
+    return _open().then(function (db) {
+      return new Promise(function (resolve, reject) {
+        const tx = db.transaction(STORE_NAME, 'readonly');
+        const str = tx.objectStore(STORE_NAME);
+        for (const cardId of cardIds) {
+          const req = str.get(_key(modelId, cardId));
+          req.onsuccess = function (e) {
+            if (e.target.result && Array.isArray(e.target.result.vector)) {
+              out.set(cardId, e.target.result.vector);
+            }
+          };
+        }
+        tx.oncomplete = function () { resolve(out); };
+        tx.onerror = function (e) { reject(e.target.error); };
+      });
+    });
+  }
+
+  App.store.idb = { put, putMany, getVector, getMany, del, clearModel };
 })();

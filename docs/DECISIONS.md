@@ -188,4 +188,17 @@ Every choice not fully specified by `docs/spec/part01.md`–`part11.md`, or reso
       - **Card-grounded English prompt & target ranking:** `pickTargetForExample` skips dialogue phrases (e.g. `"You're welcome"`, `"Can you help me?"`), preferring single words and `take`-phrases (`eraser`, `took`, `a note`) from the most-confused non-dialogue group, and passes each target with its part of speech and Chinese meaning from card data (e.g. `Word: eraser (noun, 橡皮擦)`).
       - **Temperature retry schedule & budget:** On rejection, retries up to 2 more times (`0.3 → 0.6 → 0.8`) within a `4 s` total budget, returning the first passing sentence and logging every attempt (with temperature, timestamp, raw output, and exact reason) into the 5-attempt Diagnostics history (`#/settings/ai`). Offline Qwen 2.5 0.5B (`q4f16`) benchmark across 12 wall targets measured `9/12` (`75%`) on try 1 and **`11/12` (`91.7%`)** with the 3-try retry schedule.
       - **Badges & fallback:** When Qwen supplies the sentence, both the panel and `AI 例句` block display `Qwen 2.5 0.5B · WebGPU` (not `離線範本`). If all attempts fail, falls back to a real card example from the target or another selected non-dialogue tile (labeled `卡片例句`), or hides the example block completely and shows `離線範本` only in that case.
-      - **Milestone status:** M6 complete and owner-verified on Chrome (`file://`, WebGPU `0.9–2.8 s`). Ready for M7 brief.
+      - **Milestone status:** M6 complete and owner-verified on Chrome (`file://`, WebGPU `0.9–2.8 s`).
+      - **M13 AI Polish Backlog:** Word sense: modal `'may'` sometimes gets month-sense examples (`An April May Month.`) — fix in M13 polish.
+
+---
+
+## M7 — 你說我猜 (Taboo-Style Semantic Guessing Game)
+
+32. **Bounded candidate ranking + `Xenova/all-MiniLM-L6-v2` Blob Worker + offline fallback (`js/ai/embed.js`, `js/games/guess/*`)**
+    - Uses `Xenova/all-MiniLM-L6-v2` (`q8`, ~`22.6 MB`) via the same Transformers.js CDN + classic Blob URL Worker pattern as Qwen (`file://` and `http(s)://` compatible), trying `webgpu` first with seamless `wasm` fallback and caching computed card vectors in IndexedDB (`App.store.idb.getMany` / `putMany`).
+    - **Bounded candidate list (`buildCandidates`):** instead of searching all 2,000 words on every guess, each round ranks the **target card + 18 distractors** (19 candidates total, prioritized from the same unit/chapter/topic & POS in the active deck). This keeps inference instantaneous and produces meaningful near-synonym competition (e.g. `bookstore` vs `library`).
+    - **Rule checker (`js/games/guess/checks.js`):** blocks non-English text (`請用英文描述`), descriptions outside `4–30` words, duplicate clues (`換個說法試試`), target words + simple forms (plural, `-s`/`-es`, `-ed`, `-ing`, `-er`, `-est`, irregulars — struck through in red via `<del>`), and 3 forbidden words + their simple forms (highlighted via `<mark>`).
+    - **Offline fallback ranker (`App.ai.embed.rankOffline`):** whenever MiniLM is unavailable, offline (uncached), or declined by the user, ranks the same candidate list via weighted keyword-overlap + stem matching + chapter/topic semantic cues + POS cues, displaying the **`離線版本`** badge (`MiniLM · WebGPU` or `MiniLM · WASM` when embeddings run).
+    - **Shared attempts & Review loop:** every finished round logs to `as.v1.attempts` (`source: 'guess'`) and updates `App.store.leitner.recordGameResult(cardId, 'guess', won)`, sending missed cards to Box 1 due today so they surface in Today's Review.
+    - All M7 game & embedding scripts (`js/ai/embed.js`, `js/games/guess/checks.js`, `js/games/guess/index.js`, `css/pages/guess.css`) lazy-load on `#/games/guess`, keeping initial-load `js/` well under `300 KB`.

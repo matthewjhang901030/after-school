@@ -1,0 +1,416 @@
+/* ============================================================
+   你說我猜 (You describe, AI guesses) — M7 stationery styles
+   Paper-and-ink palette, zero gradients, z-index <= 100
+   ============================================================ */
+
+.guess-start-hero {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
+  box-shadow: var(--shadow-1);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.guess-rule-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.guess-meta-pill {
+  font-size: var(--text-small);
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.guess-deck-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 340px;
+}
+
+.guess-engine-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.guess-engine-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--line-strong);
+  background: var(--bg);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink);
+}
+
+.guess-start-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.guess-progress-track {
+  width: 100%;
+  max-width: 380px;
+  height: 8px;
+  margin: var(--space-3) auto 0;
+  border-radius: var(--radius-pill);
+  background: var(--line);
+  overflow: hidden;
+}
+
+.guess-progress-fill {
+  height: 100%;
+  background: var(--tab-vocab);
+  border-radius: var(--radius-pill);
+  transition: width 180ms ease;
+}
+
+.guess-topbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.guess-topbar-left {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.guess-round-pill,
+.guess-timer-pill {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.guess-target-card {
+  background: var(--surface);
+  border: 1.5px solid var(--ink);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5, 20px);
+  box-shadow: var(--shadow-1);
+  margin-bottom: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.guess-target-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.guess-target-word-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.guess-target-word {
+  font-family: var(--font-display);
+  font-size: clamp(28px, 4vw, 38px);
+  margin: 0;
+  color: var(--ink);
+}
+
+.guess-pos-tag {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+
+.guess-tts-btn {
+  padding: 4px 8px;
+  min-width: 36px;
+  min-height: 36px;
+}
+
+.guess-target-zh {
+  font-family: var(--font-zh-card);
+  font-size: var(--text-body);
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.guess-taboo-section {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px dashed var(--line-strong);
+}
+
+.guess-taboo-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--wrong);
+}
+
+.guess-taboo-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.guess-taboo-chip {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--wrong);
+  background: var(--bg);
+  color: var(--wrong);
+}
+
+.guess-taboo-chip.is-hit {
+  background: var(--wrong);
+  color: var(--on-wrong);
+  font-weight: 700;
+}
+
+.guess-chat-feed {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.guess-bubble {
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  overflow-wrap: anywhere;
+}
+
+.guess-bubble--user {
+  border-color: var(--line-strong);
+  background: var(--bg);
+}
+
+.guess-bubble-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.guess-ai-line {
+  margin: 0 0 var(--space-2);
+  font-weight: 600;
+}
+
+.guess-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.guess-bar-row {
+  display: grid;
+  grid-template-columns: minmax(90px, 140px) 1fr 44px;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-small);
+}
+
+.guess-bar-row.is-match .guess-bar-word {
+  color: var(--correct);
+  font-weight: 700;
+}
+
+.guess-bar-word {
+  overflow-wrap: anywhere;
+}
+
+.guess-bar-track {
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--line);
+  overflow: hidden;
+}
+
+.guess-bar-fill {
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--muted);
+}
+
+.guess-bar-fill.is-match {
+  background: var(--correct);
+}
+
+.guess-bar-pct {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-align: right;
+  color: var(--muted);
+}
+
+.guess-input-card,
+.guess-outcome-card {
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+}
+
+.guess-outcome-card.is-won {
+  border-color: var(--correct);
+}
+
+.guess-outcome-title {
+  font-weight: 700;
+  font-size: var(--text-body);
+}
+
+.guess-textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 72px;
+  font-family: var(--font-sans);
+}
+
+.guess-input-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.guess-input-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.guess-error-box {
+  border: 1px solid var(--wrong);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
+  background: var(--bg);
+}
+
+.guess-error-msg {
+  color: var(--wrong);
+  font-size: var(--text-small);
+  font-weight: 700;
+}
+
+.guess-violation-preview {
+  margin-top: 4px;
+  font-size: var(--text-small);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.guess-strike {
+  color: var(--wrong);
+  font-weight: 700;
+  text-decoration: line-through;
+}
+
+.guess-taboo-hit {
+  background: var(--highlight);
+  color: var(--on-highlight);
+  padding: 0 4px;
+  border-radius: 3px;
+  font-weight: 700;
+}
+
+.guess-end-hero {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
+  text-align: center;
+  margin-bottom: var(--space-4);
+}
+
+.guess-summary-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.guess-summary-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.guess-vocab-review {
+  margin-bottom: var(--space-4);
+}
+
+.guess-vocab-grid {
+  display: grid;
+  gap: var(--space-2);
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 640px) {
+  .guess-vocab-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.guess-vocab-chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.guess-end-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}

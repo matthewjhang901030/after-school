@@ -2012,4 +2012,253 @@
       }
     });
   });
+
+  // ── M7: 你說我猜 (Taboo-style semantic guessing game) ────────────────────
+  suite('M7 · 你說我猜 (Rule Checker, Candidates, Fallback Ranker & Attempts)', ({ test, assert }) => {
+    test('rule checker blocks target/taboo words and simple forms, non-English, short/long, and duplicates', () => {
+      const checks = window.App.games.guessChecks;
+
+      // Non-English rejected
+      const rZh = checks.validateDescription('這是一個安靜的地方可以學習', 'library', ['book', 'read', 'borrow'], []);
+      assert.equal(rZh.ok, false);
+      assert.equal(rZh.reason, 'non_english');
+
+      // Too short (< 4 words) and too long (> 30 words)
+      const rShort = checks.validateDescription('Quiet study place', 'library', ['book', 'read', 'borrow'], []);
+      assert.equal(rShort.ok, false);
+      assert.equal(rShort.reason, 'too_short');
+
+      const longText = new Array(32).fill('quiet').join(' ');
+      const rLong = checks.validateDescription(longText, 'library', ['book', 'read', 'borrow'], []);
+      assert.equal(rLong.ok, false);
+      assert.equal(rLong.reason, 'too_long');
+
+      // Duplicate clue rejected
+      const prev = ['A quiet public building for students.'];
+      const rDup = checks.validateDescription('  a quiet public building for students. ', 'library', ['book', 'read', 'borrow'], prev);
+      assert.equal(rDup.ok, false);
+      assert.equal(rDup.reason, 'duplicate_clue');
+
+      // Target word & inflections blocked (plural, -ed, -ing, irregular)
+      const rTargetExact = checks.validateDescription('Students visit the library after school.', 'library', ['book', 'read', 'borrow'], []);
+      assert.equal(rTargetExact.ok, false);
+      assert.equal(rTargetExact.reason, 'contains_target');
+      assert.deepEqual(rTargetExact.offendingWords, ['library']);
+
+      const rTargetPlural = checks.validateDescription('Many city libraries stay open late.', 'library', ['book', 'read', 'borrow'], []);
+      assert.equal(rTargetPlural.ok, false);
+      assert.equal(rTargetPlural.reason, 'contains_target');
+
+      const rTargetIng = checks.validateDescription('People are walking quickly along the road.', 'walk', ['step', 'foot', 'move'], []);
+      assert.equal(rTargetIng.ok, false);
+      assert.equal(rTargetIng.reason, 'contains_target');
+
+      const rTargetIrreg = checks.validateDescription('She ate dinner with her family yesterday.', 'eat', ['food', 'meal', 'bite'], []);
+      assert.equal(rTargetIrreg.ok, false);
+      assert.equal(rTargetIrreg.reason, 'contains_target');
+
+      // Forbidden (taboo) words & simple forms blocked
+      const rTabooPlural = checks.validateDescription('A quiet room full of books and desks.', 'library', ['book', 'read', 'borrow'], []);
+      assert.equal(rTabooPlural.ok, false);
+      assert.equal(rTabooPlural.reason, 'contains_taboo');
+      assert.deepEqual(rTabooPlural.matchedTaboos, ['book']);
+
+      const rTabooIng = checks.validateDescription('Students sit quietly while reading every afternoon.', 'library', ['book', 'read', 'borrow'], []);
+      assert.equal(rTabooIng.ok, false);
+      assert.equal(rTabooIng.reason, 'contains_taboo');
+      assert.deepEqual(rTabooIng.matchedTaboos, ['read']);
+
+      const rTabooEd = checks.validateDescription('She borrowed a magazine from the front desk.', 'library', ['book', 'read', 'borrow'], []);
+      assert.equal(rTabooEd.ok, false);
+      assert.equal(rTabooEd.reason, 'contains_taboo');
+
+      // Clean English clue passes
+      const rOk = checks.validateDescription('A quiet public building where students study with free shelves.', 'library', ['book', 'read', 'borrow'], []);
+      assert.equal(rOk.ok, true);
+      assert.equal(rOk.wordCount, 10);
+    });
+
+    test('candidate builder creates bounded same-topic set (15-20 distractors) and taboo picker chooses 3+ valid words', () => {
+      const checks = window.App.games.guessChecks;
+      const cards = window.App.store.cards.getAll({ includeHidden: false });
+      const rng = window.App.random.create('m7-cand-seed');
+
+      const targets = checks.selectSessionTargets(cards, 5, { rng });
+      assert.equal(targets.length, 5, 'Session selects 5 target cards');
+      for (const t of targets) {
+        assert.equal(checks.isEligibleTarget(t), true, 'Every selected target is eligible');
+      }
+
+      const target = cards.find((c) => c.word.toLowerCase() === 'library') || targets[0];
+      const candidates = checks.buildCandidates(target, cards, { distractorCount: 18, rng });
+      assert.equal(candidates.length, 19, 'Candidate list has target + 18 distractors');
+      assert.ok(candidates.some((c) => c.id === target.id), 'Target is included in candidates');
+
+      const uniqueWords = new Set(candidates.map((c) => c.word.toLowerCase()));
+      assert.equal(uniqueWords.size, candidates.length, 'All candidate headwords are unique');
+
+      // Same-topic preference: at least some distractors share chapter or unit with target when available
+      if (target.chapterNo != null) {
+        const sameChap = candidates.filter((c) => c.id !== target.id && c.chapterNo === target.chapterNo);
+        assert.ok(sameChap.length > 0, 'Candidates prioritize distractors from same chapter/topic');
+      }
+
+      // Offline taboo picker returns 3 valid words excluding target variants
+      const taboos = checks.pickTabooWords(target, candidates, { count: 3 });
+      assert.equal(taboos.length, 3, 'Picks 3 forbidden words');
+      const targetForms = new Set(checks.expandForms(target.word));
+      for (const tw of taboos) {
+        assert.ok(!targetForms.has(tw.toLowerCase()), 'Taboo word must not be target or variant');
+      }
+
+      // Embedding nearest-neighbor taboo picker selects closest vectors
+      const vecMap = new Map();
+      vecMap.set(target.id, [1, 0, 0]);
+      const others = candidates.filter((c) => c.id !== target.id);
+      others.forEach((c, idx) => {
+        vecMap.set(c.id, idx === 0 ? [0.99, 0.1, 0] : (idx === 1 ? [0.95, 0.3, 0] : (idx === 2 ? [0.9, 0.4, 0] : [0, 1, 0])));
+      });
+      const embTaboos = checks.pickTabooWords(target, candidates, { count: 3, embeddingsMap: vecMap });
+      assert.equal(embTaboos.length, 3);
+      assert.ok(embTaboos.includes(others[0].word.toLowerCase()), 'Nearest cosine neighbor chosen as taboo word');
+
+      // Scoring matches Section 4.4.1 (300/200/100 for #1; half for top-3)
+      assert.equal(checks.scoreRound(1, 1), 300);
+      assert.equal(checks.scoreRound(2, 1), 200);
+      assert.equal(checks.scoreRound(3, 1), 100);
+      assert.equal(checks.scoreRound(1, 2), 150);
+      assert.equal(checks.scoreRound(2, 3), 100);
+      assert.equal(checks.scoreRound(3, 4), 0);
+    });
+
+    test('offline keyword-overlap ranker works cleanly and rankCandidates falls back when MiniLM fails', async () => {
+      const embed = window.App.ai.embed;
+      const sampleCards = [
+        { id: 'c-lib', word: 'library', pos: 'n.', zh: '圖書館', hasRealExample: true, example: 'Students study quietly in the silent hall with free shelves.', tags: ['School'] },
+        { id: 'c-spo', word: 'spoon', pos: 'n.', zh: '湯匙', hasRealExample: true, example: 'She used a silver spoon to eat hot soup.', tags: ['Food'] },
+        { id: 'c-rai', word: 'rain', pos: 'n.', zh: '雨', hasRealExample: true, example: 'Heavy drops fall from dark clouds in the sky.', tags: ['Weather'] },
+        { id: 'c-dog', word: 'dog', pos: 'n.', zh: '狗', hasRealExample: true, example: 'The loyal pet wags its tail and barks loudly.', tags: ['Animals'] },
+      ];
+
+      // 1. Offline ranker places target #1 on matching clues
+      const rFood = embed.rankOffline('A silver kitchen tool you hold to eat hot soup.', sampleCards);
+      assert.equal(rFood.engine, 'offline');
+      assert.equal(rFood.ranked[0].word, 'spoon', 'Offline ranker ranks spoon #1 for soup/silver clue');
+      assert.ok(rFood.ranked[0].pct >= rFood.ranked[1].pct, 'Softmax percentages decrease with rank');
+
+      const rWeather = embed.rankOffline('Wet drops falling from dark sky clouds outside.', sampleCards);
+      assert.equal(rWeather.ranked[0].word, 'rain', 'Offline ranker ranks rain #1 for clouds/sky/drops clue');
+
+      // 2. Cosine similarity & softmax sanity
+      assert.ok(Math.abs(embed.cosine([1, 0], [1, 0]) - 1) < 1e-6);
+      assert.ok(Math.abs(embed.cosine([1, 0], [0, 1])) < 1e-6);
+      const pcts = embed.softmaxScores([{ score: 0.9 }, { score: 0.7 }, { score: 0.5 }], 0.1);
+      assert.ok(pcts[0] > pcts[1] && pcts[1] > pcts[2], 'Softmax preserves strict ordering');
+
+      // 3. rankCandidates falls back to offline ranker automatically when Worker/MiniLM fails
+      const origSupported = embed.isSupported;
+      try {
+        embed.isSupported = () => false;
+        const fb = await embed.rankCandidates('Wet drops falling from dark clouds.', sampleCards, {});
+        assert.equal(fb.engine, 'offline');
+        assert.equal(fb.ranked[0].word, 'rain');
+      } finally {
+        embed.isSupported = origSupported;
+      }
+    });
+
+    test('你說我猜 game UI enforces rules, displays engine badges, logs attempts to as.v1.attempts, and feeds Review on miss', async () => {
+      const guessGame = window.App.games.guess;
+      const embed = window.App.ai.embed;
+      const attempts = window.App.store.attempts;
+      const leitner = window.App.store.leitner;
+      const mountRoot = document.getElementById('test-router-root');
+      const origRank = embed.rankCandidates;
+      const origInspect = embed.inspectCache;
+
+      try {
+        embed.inspectCache = async () => ({ cached: false, files: 0, bytes: 0 });
+        const ctrl = guessGame.mount(mountRoot, { query: { words: 'spoon,apple,winter,coffee,sweet' } });
+
+        // Start in offline mode -> badge shows 離線版本
+        await ctrl.startSession('offline');
+        const st1 = ctrl.getState();
+        assert.equal(st1.phase, 'play');
+        assert.ok(st1.target, 'First round target loaded');
+        assert.equal(st1.taboos.length, 3, 'Round shows 3 forbidden words');
+        assert.ok(mountRoot.querySelector('[data-guess-engine-badge="true"]').textContent.includes('離線版本'));
+
+        // Rule block: saying target word -> rejected with <del data-guess-strike="true">
+        await ctrl.submitClue(`I really like using this ${st1.target.word} every day.`);
+        assert.ok(mountRoot.querySelector('[data-guess-error="contains_target"]'), 'Target word violation shown');
+        assert.ok(mountRoot.querySelector('[data-guess-strike="true"]'), 'Offending target word struck in red');
+
+        // Rule block: saying taboo word -> rejected with <mark data-guess-taboo-hit="true">
+        await ctrl.submitClue(`A common item related to ${st1.taboos[0]} every morning.`);
+        assert.ok(mountRoot.querySelector('[data-guess-error="contains_taboo"]'), 'Taboo word violation shown');
+        assert.ok(mountRoot.querySelector('[data-guess-taboo-hit="true"]'), 'Offending taboo word highlighted');
+
+        // Valid clue where AI ranks target #1 -> wins 300 pts & logs correct attempt to as.v1.attempts
+        const target1 = st1.target;
+        const other1 = st1.candidates.filter((c) => c.id !== target1.id);
+        embed.rankCandidates = async () => ({
+          engine: 'minilm',
+          device: 'webgpu',
+          fellBack: false,
+          elapsedMs: 42,
+          ranked: [
+            { card: target1, word: target1.word, score: 0.88, pct: 68, rank: 1 },
+            { card: other1[0], word: other1[0].word, score: 0.55, pct: 21, rank: 2 },
+            { card: other1[1], word: other1[1].word, score: 0.42, pct: 11, rank: 3 },
+          ],
+        });
+        const beforeCount = attempts.getAll().length;
+        await ctrl.submitClue('A shiny metal utensil held in your hand for soup.');
+        const afterWin = ctrl.getState();
+        assert.equal(afterWin.phase, 'round_done');
+        assert.equal(afterWin.totalScore, 300, '1st clue #1 guess awards 300 points');
+        assert.ok(mountRoot.querySelector('[data-guess-ai-bubble="true"]').textContent.includes('MiniLM · WebGPU'), 'AI bubble displays MiniLM · WebGPU badge');
+
+        const winAttempts = attempts.getAll();
+        assert.equal(winAttempts.length, beforeCount + 1, 'Won round logged to as.v1.attempts');
+        assert.equal(winAttempts[winAttempts.length - 1].source, 'guess');
+        assert.equal(winAttempts[winAttempts.length - 1].correct, true);
+        assert.equal(winAttempts[winAttempts.length - 1].cardId, target1.id);
+
+        // Advance to round 2 and skip -> logs wrong attempt AND sends card to Leitner box 1 due today (feeds Review)
+        const nextBtn = mountRoot.querySelector('[data-guess-next="true"]');
+        assert.ok(nextBtn, 'Next card button present');
+        nextBtn.click();
+        await new Promise((r) => setTimeout(r, 15));
+
+        const st2 = ctrl.getState();
+        assert.equal(st2.phase, 'play');
+        const target2 = st2.target;
+        const skipBtn = mountRoot.querySelector('[data-guess-skip="true"]');
+        assert.ok(skipBtn, 'Skip button present');
+        skipBtn.click();
+
+        const afterMiss = attempts.getAll();
+        const lastLog = afterMiss[afterMiss.length - 1];
+        assert.equal(lastLog.source, 'guess');
+        assert.equal(lastLog.correct, false, 'Skipped/missed round logged as wrong');
+        assert.equal(lastLog.cardId, target2.id);
+
+        const prog2 = leitner.get(target2.id);
+        assert.ok(prog2, 'Missed card recorded in Leitner progress');
+        assert.equal(prog2.box, 1, 'Missed card placed in Box 1');
+        assert.equal(prog2.due, window.App.date.todayKey(), 'Missed card due today so it feeds Review');
+        assert.equal(prog2.lastWrongIn, 'guess');
+      } finally {
+        embed.rankCandidates = origRank;
+        embed.inspectCache = origInspect;
+        guessGame.unmount();
+        window.App.store.db.remove('as.v1.attempts');
+        window.App.store.db.remove('as.v1.sessions');
+        window.App.store.db.remove('as.v1.progress');
+        attempts.invalidate();
+        leitner.invalidate();
+      }
+    });
+  });
 })();

@@ -19,7 +19,7 @@ Integrated browser-only English learning website for Taiwanese university studen
 
 ## Project Status
 
-- **Current milestone:** M6 Complete (Design system, app shell, `file://`-safe lazy loader, i18n zh-TW/en, storage + migrations, flashcards, Leitner 5-box review, attempt log, onboarding, shared game engine, 四格分類牆 with 12 validated walls, and 3-tier browser AI layer + Feature A 錯題解說: deterministic code 錯誤原因/記憶提示 + Qwen 2.5 WebGPU `AI 例句` with sentence quality gate, safe `<mark>` highlighting, card fallback, and 5-attempt diagnostics) — ready for M7.
+- **Current milestone:** M7 Complete (Design system, app shell, `file://`-safe lazy loader, i18n zh-TW/en, storage + IndexedDB batch helpers, flashcards, Leitner 5-box review, attempt log, onboarding, shared game engine, 四格分類牆 with 12 validated walls, 3-tier browser AI layer + Feature A 錯題解說, and 你說我猜 Taboo-style semantic guessing game with MiniLM embeddings + offline keyword-overlap fallback) — ready for M8.
 - **Specification:** `docs/spec/part01.md` – `docs/spec/part11.md`
 - **Data audit & curation log:** `docs/DATA.md`
 - **Authored English content for review:** `docs/CONTENT.md`
@@ -30,8 +30,8 @@ Integrated browser-only English learning website for Taiwanese university studen
 - Chrome / Edge / Dia desktop (latest; Chrome 148+ for optional built-in Prompt API over `http(s)://`)
 - Safari iOS, Chrome Android
 
-## Known Limits (Through M6)
+## Known Limits (Through M7)
 
 - Builtin vocabulary comes from `data/english-2000-data.js` (unmodified) with non-destructive OCR and translation curation in `data/card-fixes.js`.
 - Curated walls (`data/walls.js`) currently ship 12 validated walls (expanding to 30 by T3).
-- 你說我猜 (M7), 第 13 節課 (M8/M10), Dashboard timetable & charts (M9/M11), AI Features B–E (M11/M13), and offline Service Worker (M12) are staged until their respective milestones.
+- 第 13 節課 (M8/M10), Dashboard timetable & charts (M9/M11), AI Features B–E (M11/M13), and offline Service Worker (M12) are staged until their respective milestones.
