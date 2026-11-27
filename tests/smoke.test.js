@@ -1228,7 +1228,7 @@
       const ai = window.App.ai;
       // Valid JSON wrapped in markdown fences with exact word in example
       const ok = ai.validateFeatureAOutput(
-        '```json\n{"why":"i and e were swapped.","tip":"Remember i before e except after c.","example":"I will receive the package today."}\n```',
+        '```json\n{"why":"你把 i 和 e 寫反了。","tip":"記住 c 後面接 ei。","example":"I will receive the package today."}\n```',
         sampleFacts
       );
       assert.equal(ok.valid, true);
@@ -1236,7 +1236,7 @@
 
       // Example missing target word is dropped (Section 5.5)
       const dropped = ai.validateFeatureAOutput(
-        '{"why":"Spelling slip.","tip":"Check ei after c.","example":"The cat sat on the mat."}',
+        '{"why":"拼字順序有誤。","tip":"檢查 c 後面的 ei。","example":"The cat sat on the mat."}',
         sampleFacts
       );
       assert.equal(dropped.valid, true);
@@ -1244,15 +1244,76 @@
 
       // Multi-object rambling output from small 0.5B models still extracts first balanced JSON object
       const multi = ai.validateFeatureAOutput(
-        '{"why":"Check c before ei.","tip":"Split re-ceive.","example":"I will receive it."}, {"why":"extra"}',
+        '{"why":"檢查 c 後面接 ei。","tip":"拆成 re-ceive 記。","example":"I will receive it."}, {"why":"extra"}',
         sampleFacts
       );
       assert.equal(multi.valid, true, 'Balanced-brace extraction handles trailing second object');
-      assert.equal(multi.data.why, 'Check c before ei.');
+      assert.equal(multi.data.why, '檢查 c 後面接 ei。');
 
-      // Invalid JSON or missing required fields rejected
+      // Invalid JSON or missing required fields rejected when requireJson is true
       assert.equal(ai.validateFeatureAOutput('not json at all', sampleFacts).valid, false);
-      assert.equal(ai.validateFeatureAOutput('{"why":"only why"}', sampleFacts).valid, false);
+      assert.equal(ai.validateFeatureAOutput('{"why":"只有原因沒有提示"}', sampleFacts).valid, false);
+    });
+
+    test('lenient plain-text parser handles messy 0.5B outputs, S2T conversion, missing labels, and safety rejections', () => {
+      const ai = window.App.ai;
+      const wallFacts = {
+        game: 'wall',
+        spoilerSafe: true,
+        selectedItems: ['notebook', 'pencil', 'eraser', 'went'],
+        isOneAway: true,
+        distinctGroupCount: 2,
+        skillsPresent: ['vocab', 'grammar'],
+      };
+
+      // 1. Simplified Chinese + full-width colons -> converted to Traditional Chinese & accepted
+      const p1 = ai.parseFeatureAOutput(
+        '原因：这四个单词里三个是文具，但 went 是过去式动词。\n记忆提示：先把动词和名词分开判断。',
+        wallFacts
+      );
+      assert.equal(p1.valid, true, 'Simplified 2-line output must pass after S2T');
+      assert.ok(p1.data.why.includes('這四個單詞') && p1.data.why.includes('動詞'), 'Simplified converted to Traditional');
+      assert.ok(p1.data.tip.includes('動詞') && p1.data.tip.includes('分開'));
+
+      // 2. Half-width colons + markdown bold + bullets + quotes -> cleaned & accepted
+      const p2 = ai.parseFeatureAOutput(
+        '- **原因**: 「notebook 與 pencil 都是文具名詞，went 不同類。」\n- **提示**: "注意詞性差異再選一次。"',
+        wallFacts
+      );
+      assert.equal(p2.valid, true, 'Half-width colons + markdown + bullets must pass');
+      assert.ok(!p2.data.why.includes('**') && !p2.data.why.startsWith('「'));
+      assert.ok(p2.data.tip.includes('詞性差異'));
+
+      // 3. Missing labels (two plain sentences) -> first sentence = why, second = tip
+      const p3 = ai.parseFeatureAOutput(
+        'notebook、pencil、eraser 都是文具用品，只有 went 是動詞。建議先找出不同詞性的誘答字。',
+        wallFacts
+      );
+      assert.equal(p3.valid, true, 'Missing labels must split first sentence as why and rest as tip');
+      assert.ok(p3.data.why.includes('went'));
+      assert.ok(p3.data.tip.includes('誘答字'));
+
+      // 4. Single plain sentence without labels -> accepted as why + grounded fallback tip
+      const p4 = ai.parseFeatureAOutput(
+        '這四個項目混合了單字與動詞文法。',
+        wallFacts
+      );
+      assert.equal(p4.valid, true, 'Single good Chinese sentence should pass with grounded tip');
+      assert.ok(p4.data.tip.length > 0);
+
+      // 5. Pure English gibberish in zh-TW mode -> rejected with not_chinese
+      const p5 = ai.parseFeatureAOutput('This is purely English with no Chinese characters.', wallFacts);
+      assert.equal(p5.valid, false);
+      assert.equal(p5.reason, 'not_chinese');
+
+      // 6. Contradicting code-supplied facts -> rejected with contradicts_facts
+      const p6 = ai.parseFeatureAOutput('原因：這四個都是同一組，這題答對了。\n記憶提示：繼續加油。', wallFacts);
+      assert.equal(p6.valid, false);
+      assert.equal(p6.reason, 'contradicts_facts');
+
+      const p7 = ai.parseFeatureAOutput('原因：正確拼法是 recieve。\n記憶提示：多念幾次。', sampleFacts);
+      assert.equal(p7.valid, false);
+      assert.equal(p7.reason, 'contradicts_facts');
     });
 
     test('Feature A works in all 3 tiers when forced from Settings and falls back to template on invalid JSON', async () => {
@@ -1290,34 +1351,64 @@
         assert.ok(rNano.why.startsWith('[ZH] '), 'Nano output translated when Translator is available');
         assert.ok(rNano.example && rNano.example.includes('receive'));
 
-        // Tier 2: Forced Qwen (mocked Blob Worker)
+        // Tier 2: Forced Qwen (plain-text 2-line format using chat messages, no JSON required)
         ai.qwen.isSupported = () => true;
-        ai.qwen.init = async () => ({ loadMs: 50, device: 'wasm', dtype: 'q8' });
-        ai.qwen.generate = async () => ({
-          text: '{"why":"「receive」的 c 後面要接 ei。","tip":"口訣：c 後面是 ei。","example":"Please receive this gift."}',
-          elapsedMs: 240,
-          loadMs: 50,
-          tokensPerSec: 18.5,
-        });
+        ai.qwen.init = async () => ({ loadMs: 50, device: 'webgpu', dtype: 'q4f16' });
+        ai.qwen.generate = async (opts) => {
+          assert.ok(Array.isArray(opts.messages) && opts.messages.length >= 4, 'Qwen uses multi-turn few-shot chat template');
+          assert.ok(opts.temperature > 0 && opts.temperature <= 0.4, 'Qwen uses low temperature (~0.3)');
+          return {
+            text: '原因：receive 的 c 后面要接 ei。\n记忆提示：口诀是 c 后面接 ei。',
+            elapsedMs: 2800,
+            firstTokenMs: 420,
+            tokenCount: 28,
+            loadMs: 50,
+            tokensPerSec: 18.5,
+            device: 'webgpu',
+          };
+        };
         settings.update({ aiEngine: 'qwen' });
         ai.invalidateDetection();
         const rQwen = await ai.explainMistake(sampleFacts);
         assert.equal(rQwen.source, 'qwen');
         assert.equal(rQwen.fellBack, false);
-        assert.ok(rQwen.why.includes('receive'));
+        assert.ok(rQwen.why.includes('receive') && rQwen.why.includes('後面'), 'S2T applied to Qwen plain text');
 
-        // Invalid JSON from Qwen retries once and then falls back cleanly to template (Section 5.4)
+        // Unacceptable output (pure English gibberish in zh-TW) retries once, falls back, and records raw output + reason
         let qwenCalls = 0;
         ai.qwen.generate = async () => {
           qwenCalls++;
-          return { text: 'sorry I cannot format json', elapsedMs: 30, loadMs: 0, tokensPerSec: null };
+          return {
+            text: 'sorry cannot answer in chinese',
+            elapsedMs: 900,
+            firstTokenMs: 300,
+            tokenCount: 6,
+            loadMs: 0,
+            tokensPerSec: 6.7,
+            device: 'webgpu',
+          };
         };
         const rFallback = await ai.explainMistake(sampleFacts);
-        assert.equal(qwenCalls, 2, 'Must retry once on invalid JSON before falling back');
+        assert.equal(qwenCalls, 2, 'Must retry once on rejected output before falling back');
         assert.equal(rFallback.source, 'template');
         assert.equal(rFallback.fellBack, true);
-        assert.equal(rFallback.note, 'invalid_json');
+        assert.equal(rFallback.note, 'not_chinese');
         assert.ok(rFallback.why.includes('receive'), 'Fallback template still explains the mistake');
+
+        const lastAttempt = ai.getLastAttempt();
+        assert.ok(lastAttempt && lastAttempt.rawOutput === 'sorry cannot answer in chinese', 'Raw model output recorded for diagnostics');
+        assert.equal(lastAttempt.rejectionReason, 'not_chinese', 'Exact rejection reason recorded');
+        assert.equal(lastAttempt.tokenCount, 6);
+
+        // AI Diagnostics page displays Last AI attempt (raw output + rejection reason + telemetry)
+        const mountRoot = document.getElementById('test-router-root');
+        window.App.pages.aiDiagnostics.mount(mountRoot);
+        await new Promise((r) => setTimeout(r, 20));
+        const diagAttempt = mountRoot.querySelector('[data-ai-last-attempt="true"]');
+        assert.ok(diagAttempt, 'AI Diagnostics renders Last AI attempt section');
+        assert.ok(diagAttempt.textContent.includes('not_chinese'), 'Rejection reason displayed in Diagnostics');
+        assert.ok(mountRoot.querySelector('[data-ai-raw-output="true"]').textContent.includes('sorry cannot answer'));
+        window.App.pages.aiDiagnostics.unmount();
       } finally {
         ai.nano.generate = origNanoGen;
         ai.nano.detect = origNanoDetect;

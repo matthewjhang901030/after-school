@@ -17,6 +17,7 @@
   const MODEL_ID = 'onnx-community/Qwen2.5-0.5B-Instruct';
   const TRANSFORMERS_CDN = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.5.1/dist/transformers.min.js';
   const CACHE_NAME = 'transformers-cache';
+  const TELEMETRY_KEY = 'as.v1.ai.telemetry';
   const APPROX_MB_Q4F16 = 467;
   const APPROX_BYTES_Q4F16 = Math.round(467.4 * 1024 * 1024);
 
@@ -39,11 +40,43 @@
     warmedUp: false,
     lastFirstTokenMs: null,
     lastAnswerMs: null,
+    lastTokenCount: null,
     tokensPerSec: null,
     hadCacheBefore: false,
     cachedFiles: 0,
     ready: false,
   };
+
+  function _persistTelemetry() {
+    if (!App.store || !App.store.db) return;
+    App.store.db.set(TELEMETRY_KEY, {
+      device: _metrics.device,
+      dtype: _metrics.dtype,
+      webgpuError: _metrics.webgpuError,
+      loadMs: _metrics.loadMs,
+      warmupMs: _metrics.warmupMs,
+      lastFirstTokenMs: _metrics.lastFirstTokenMs,
+      lastAnswerMs: _metrics.lastAnswerMs,
+      lastTokenCount: _metrics.lastTokenCount,
+      tokensPerSec: _metrics.tokensPerSec,
+      updatedAt: Date.now(),
+    });
+  }
+
+  function _hydrateTelemetry() {
+    if (!App.store || !App.store.db) return;
+    const saved = App.store.db.get(TELEMETRY_KEY, null);
+    if (!saved || typeof saved !== 'object') return;
+    if (_metrics.device === null && saved.device) _metrics.device = saved.device;
+    if (_metrics.dtype === null && saved.dtype) _metrics.dtype = saved.dtype;
+    if (_metrics.webgpuError === null && saved.webgpuError) _metrics.webgpuError = saved.webgpuError;
+    if (_metrics.loadMs === null && saved.loadMs != null) _metrics.loadMs = saved.loadMs;
+    if (_metrics.warmupMs === null && saved.warmupMs != null) _metrics.warmupMs = saved.warmupMs;
+    if (_metrics.lastFirstTokenMs === null && saved.lastFirstTokenMs != null) _metrics.lastFirstTokenMs = saved.lastFirstTokenMs;
+    if (_metrics.lastAnswerMs === null && saved.lastAnswerMs != null) _metrics.lastAnswerMs = saved.lastAnswerMs;
+    if (_metrics.lastTokenCount === null && saved.lastTokenCount != null) _metrics.lastTokenCount = saved.lastTokenCount;
+    if (_metrics.tokensPerSec === null && saved.tokensPerSec != null) _metrics.tokensPerSec = saved.tokensPerSec;
+  }
 
   function isSupported() {
     return typeof window !== 'undefined' && typeof window.Worker !== 'undefined' && typeof window.Blob !== 'undefined';
@@ -216,10 +249,12 @@
           if (type === 'generate') {
             if (!generator) throw new Error('Qwen model not initialized');
             const t0 = performance.now();
-            const messages = [
-              { role: 'system', content: payload.systemPrompt },
-              { role: 'user', content: payload.userPrompt },
-            ];
+            const messages = Array.isArray(payload.messages) && payload.messages.length
+              ? payload.messages
+              : [
+                { role: 'system', content: payload.systemPrompt || '' },
+                { role: 'user', content: payload.userPrompt || '' },
+              ];
             let tokenCount = 0;
             let firstTokenMs = null;
             let streamed = '';
@@ -239,13 +274,19 @@
               })
               : undefined;
 
-            const out = await generator(messages, {
+            const useSample = typeof payload.temperature === 'number' && payload.temperature > 0;
+            const genOpts = {
               max_new_tokens: payload.maxNewTokens || 80,
-              do_sample: Boolean(payload.temperature && payload.temperature > 0),
-              temperature: payload.temperature || 0.1,
+              do_sample: useSample,
               return_full_text: false,
               streamer,
-            });
+            };
+            if (useSample) {
+              genOpts.temperature = payload.temperature;
+              genOpts.top_p = payload.topP || 0.9;
+            }
+
+            const out = await generator(messages, genOpts);
 
             const elapsedMs = Math.max(1, Math.round(performance.now() - t0));
             let text = streamed;
@@ -417,6 +458,7 @@
       if (typeof navigator !== 'undefined' && navigator.storage && typeof navigator.storage.persist === 'function') {
         navigator.storage.persist().catch(function () {});
       }
+      _persistTelemetry();
       return Object.assign({}, _metrics);
     }).catch(function (err) {
       _initPromise = null;
@@ -446,6 +488,7 @@
       const res = await _callWorker('warmup', null, {});
       _metrics.warmedUp = true;
       _metrics.warmupMs = res.elapsedMs;
+      _persistTelemetry();
       return { warmed: true, device: _metrics.device, warmupMs: res.elapsedMs };
     })().catch(function () {
       _warmupPromise = null;
@@ -467,21 +510,26 @@
     }
     const info = await init({ onProgress: o.onProgress, signal: o.signal });
     const res = await _callWorker('generate', {
-      systemPrompt: o.systemPrompt,
-      userPrompt: o.userPrompt,
+      messages: Array.isArray(o.messages) ? o.messages : null,
+      systemPrompt: o.systemPrompt || '',
+      userPrompt: o.userPrompt || '',
       maxNewTokens: o.maxNewTokens || 80,
-      temperature: o.temperature || 0,
+      temperature: typeof o.temperature === 'number' ? o.temperature : 0.3,
+      topP: typeof o.topP === 'number' ? o.topP : 0.9,
     }, { onToken: o.onToken, signal: o.signal });
 
     _metrics.lastFirstTokenMs = res.firstTokenMs;
     _metrics.lastAnswerMs = res.elapsedMs;
+    _metrics.lastTokenCount = res.tokenCount || null;
     _metrics.tokensPerSec = res.tokensPerSec;
     if (res.device) _metrics.device = res.device;
+    _persistTelemetry();
 
     return {
       text: res.text,
       elapsedMs: res.elapsedMs,
       firstTokenMs: res.firstTokenMs,
+      tokenCount: res.tokenCount || 0,
       loadMs: info.loadMs || 0,
       tokensPerSec: res.tokensPerSec,
       device: _metrics.device,
@@ -489,6 +537,7 @@
   }
 
   function getMetrics() {
+    _hydrateTelemetry();
     return Object.assign({}, _metrics);
   }
 
@@ -508,6 +557,9 @@
       _metrics.warmupMs = null;
       _metrics.lastFirstTokenMs = null;
       _metrics.lastAnswerMs = null;
+      _metrics.lastTokenCount = null;
+      _metrics.tokensPerSec = null;
+      if (App.store && App.store.db) App.store.db.remove(TELEMETRY_KEY);
     } catch (_e) { /* ignore */ }
   }
 

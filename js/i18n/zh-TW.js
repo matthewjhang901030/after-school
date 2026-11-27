@@ -354,6 +354,18 @@
     'ai.diag.cleared':             '已清除 Qwen 2.5 模型快取。',
     'ai.diag.not_cached':          '尚未下載（首次使用約 {mb} MB）',
     'ai.diag.cached_info':         '已快取 {files} 個檔案（{mb} MB）',
+    'ai.diag.last_attempt':        '最近一次 AI 嘗試',
+    'ai.diag.no_attempt':          '尚未執行過 AI 錯題解說。',
+    'ai.diag.attempt_status':      '結果狀態',
+    'ai.diag.status_ok':           '模型輸出通過驗證',
+    'ai.diag.status_fallback':     '已降級至離線範本',
+    'ai.diag.rejection_reason':    '降級／拒絕原因',
+    'ai.diag.reason_none':         '無（成功）',
+    'ai.diag.ttft':                '首字時間',
+    'ai.diag.total_time':          '總時間',
+    'ai.diag.tokens':              '輸出 tokens',
+    'ai.diag.raw_output':          '模型原始輸出',
+    'ai.diag.raw_empty':           '（無原始輸出）',
 
     // ── Misc ────────────────────────────────────────────────────────────────
     'misc.loading':             '載入中...',

@@ -1,7 +1,8 @@
 /**
- * AI Diagnostics page (#/settings/ai) — M6 live tier detection, Qwen cache & test runner.
- * Shows active tier, WebGPU, Chrome Prompt API, Translator API, Qwen 2.5 cache size,
- * measured timings, "測試一下 (Feature A)", and "刪除模型快取".
+ * AI Diagnostics page (#/settings/ai) — M6 live tier detection, Qwen cache,
+ * measured timings (TTFT, total, device, tokens), Last AI Attempt inspector,
+ * and "測試一下 (Feature A)" / "刪除模型快取".
+ * All model outputs are rendered strictly via textContent (never innerHTML).
  * @namespace App.pages.aiDiagnostics
  */
 (function () {
@@ -16,6 +17,11 @@
     return App.i18n ? App.i18n.t(key, params) : key;
   }
 
+  function _fmtSec(ms) {
+    if (ms === null || ms === undefined || !Number.isFinite(Number(ms))) return '—';
+    return (Math.max(0, Number(ms)) / 1000).toFixed(1) + 's';
+  }
+
   function mount(root) {
     _root = root;
     const { el, clear } = App.dom;
@@ -23,6 +29,7 @@
     const statusGrid = el('div', { className: 'detail-meta-grid', style: 'margin-bottom: var(--space-6);' }, [
       el('div', { className: 'detail-meta-item', text: _t('misc.loading') }),
     ]);
+    const lastAttemptSlot = el('section', { style: 'margin-top: var(--space-6);' });
     const testSlot = el('div', { style: 'margin-top: var(--space-4);' });
 
     function metaCard(label, value) {
@@ -32,27 +39,74 @@
       ]);
     }
 
+    function renderLastAttempt(last) {
+      clear(lastAttemptSlot);
+      lastAttemptSlot.appendChild(
+        el('h2', { className: 'text-muted text-small', style: 'margin-bottom: var(--space-3);', text: _t('ai.diag.last_attempt') })
+      );
+
+      if (!last) {
+        lastAttemptSlot.appendChild(
+          el('p', { className: 'text-muted text-small', text: _t('ai.diag.no_attempt') })
+        );
+        return;
+      }
+
+      const statusText = last.fellBack
+        ? `✗ ${_t('ai.diag.status_fallback')}`
+        : `○ ${_t('ai.diag.status_ok')}`;
+      const devStr = last.device ? String(last.device).toUpperCase() : '—';
+      const timingSummary = [
+        `${_t('ai.diag.ttft')}: ${_fmtSec(last.firstTokenMs)}`,
+        `${_t('ai.diag.total_time')}: ${_fmtSec(last.elapsedMs)}`,
+        `${_t('ai.diag.tokens')}: ${last.tokenCount != null ? last.tokenCount : '—'}`,
+      ].join(' · ');
+
+      const card = el('div', { className: 'ai-panel', 'data-ai-last-attempt': 'true' }, [
+        el('div', { className: 'detail-meta-grid' }, [
+          metaCard(_t('ai.diag.attempt_status'), `${statusText} (${last.tier || 'template'})`),
+          metaCard(_t('ai.diag.device'), devStr),
+          metaCard(_t('ai.diag.rejection_reason'), last.rejectionReason || _t('ai.diag.reason_none')),
+          metaCard(_t('ai.diag.metrics'), timingSummary),
+        ]),
+        el('div', { className: 'ai-result-label', text: _t('ai.diag.raw_output') }),
+        el('pre', {
+          className: 'ai-stream-box',
+          'data-ai-raw-output': 'true',
+          style: 'margin: 0; max-height: 200px; overflow: auto;',
+          text: last.rawOutput || _t('ai.diag.raw_empty'),
+        }),
+      ]);
+      lastAttemptSlot.appendChild(card);
+    }
+
     async function refreshStatus() {
       if (!_root || !App.ai) return;
       const st = await App.ai.detect(true);
       const qm = App.ai.qwen ? App.ai.qwen.getMetrics() : {};
+      const last = typeof App.ai.getLastAttempt === 'function' ? App.ai.getLastAttempt() : null;
       const mbCached = ((st.qwen.cachedBytes || 0) / (1024 * 1024)).toFixed(1);
       const cacheText = st.qwen.cached
         ? _t('ai.diag.cached_info', { files: st.qwen.cachedFiles, mb: mbCached })
         : _t('ai.diag.not_cached', { mb: st.qwen.approxMB });
 
-      const devLabel = qm.device === 'webgpu'
+      const activeDev = qm.device || (last && last.device);
+      const devLabel = activeDev === 'webgpu'
         ? 'WebGPU'
-        : (qm.device === 'wasm'
+        : (activeDev === 'wasm'
           ? (qm.webgpuError ? `WASM (WebGPU fallback: ${qm.webgpuError})` : 'WASM')
           : (st.webgpu ? 'WebGPU (ready)' : 'WASM'));
 
+      const firstTok = qm.lastFirstTokenMs != null ? qm.lastFirstTokenMs : (last ? last.firstTokenMs : null);
+      const totalMs = qm.lastAnswerMs != null ? qm.lastAnswerMs : (last ? last.elapsedMs : null);
+      const tokCount = qm.lastTokenCount != null ? qm.lastTokenCount : (last ? last.tokenCount : null);
+
       const timingParts = [];
-      if (qm.loadMs !== null && qm.loadMs !== undefined) timingParts.push(`load ${(qm.loadMs / 1000).toFixed(1)}s`);
-      if (qm.warmupMs !== null && qm.warmupMs !== undefined) timingParts.push(`warm-up ${(qm.warmupMs / 1000).toFixed(1)}s`);
-      if (qm.lastFirstTokenMs !== null && qm.lastFirstTokenMs !== undefined) timingParts.push(`1st token ${(qm.lastFirstTokenMs / 1000).toFixed(1)}s`);
-      if (qm.lastAnswerMs !== null && qm.lastAnswerMs !== undefined) timingParts.push(`full ${(qm.lastAnswerMs / 1000).toFixed(1)}s`);
-      if (qm.tokensPerSec) timingParts.push(`${qm.tokensPerSec} tok/s`);
+      if (firstTok != null) timingParts.push(`1st ${_fmtSec(firstTok)}`);
+      if (totalMs != null) timingParts.push(`total ${_fmtSec(totalMs)}`);
+      if (activeDev) timingParts.push(String(activeDev).toUpperCase());
+      if (tokCount != null) timingParts.push(`${tokCount} tok`);
+      if (qm.loadMs != null) timingParts.push(`load ${_fmtSec(qm.loadMs)}`);
       const timingText = timingParts.length ? timingParts.join(' · ') : '—';
 
       clear(statusGrid);
@@ -63,6 +117,8 @@
       statusGrid.appendChild(metaCard(_t('ai.diag.translator'), st.nano.translatorAvailability));
       statusGrid.appendChild(metaCard(_t('ai.diag.qwen_cache'), cacheText));
       statusGrid.appendChild(metaCard(_t('ai.diag.metrics'), timingText));
+
+      renderLastAttempt(last);
     }
 
     const testBtn = el('button', {
@@ -116,6 +172,7 @@
           ]),
         ]),
         testSlot,
+        lastAttemptSlot,
       ])
     );
 

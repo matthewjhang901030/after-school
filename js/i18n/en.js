@@ -354,6 +354,18 @@
     'ai.diag.cleared':             'Cleared cached Qwen 2.5 model.',
     'ai.diag.not_cached':          'Not downloaded yet (~{mb} MB on first use)',
     'ai.diag.cached_info':         '{files} files cached ({mb} MB)',
+    'ai.diag.last_attempt':        'Last AI attempt',
+    'ai.diag.no_attempt':          'No AI explanation has run yet.',
+    'ai.diag.attempt_status':      'Result',
+    'ai.diag.status_ok':           'Accepted model output',
+    'ai.diag.status_fallback':     'Fell back to offline template',
+    'ai.diag.rejection_reason':    'Rejection reason',
+    'ai.diag.reason_none':         'None (accepted)',
+    'ai.diag.ttft':                'First token',
+    'ai.diag.total_time':          'Total',
+    'ai.diag.tokens':              'Tokens',
+    'ai.diag.raw_output':          'Raw model output',
+    'ai.diag.raw_empty':           '(No raw output recorded)',
 
     // ── Misc ────────────────────────────────────────────────────────────────
     'misc.loading':             'Loading…',
