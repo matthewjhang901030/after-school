@@ -2311,6 +2311,8 @@
       }
       for (const item of broadcast) {
         assert.ok(item.lineA && item.lineB && Array.isArray(item.accepted) && item.accepted.length >= 1 && item.ruleZh, `Valid broadcast item ${item.id}`);
+        assert.equal((item.lineA.match(/___/g) || []).length, 0, `Broadcast ${item.id} lineA has no blank`);
+        assert.equal((item.lineB.match(/___/g) || []).length, 1, `Broadcast ${item.id} lineB has exactly 1 blank`);
       }
 
       // Word pool priority: recent wrong -> box 1 -> due -> confusion -> rest

@@ -178,7 +178,7 @@ All handwritten English learning content authored for **放學後 After School**
 | `b-24` | When is your birthday? | It is ___ October. | `in` |
 | `b-25` | When does the store open? | It opens ___ Monday morning. | `on` |
 | `b-26` | Is your sister taller than you? | Yes, she is taller ___ me. | `than` |
-| `b-27` | What is the ___ river in Taiwan? | The Zhuoshui River is the longest. | `longest` |
+| `b-27` | Is the Zhuoshui River long? | Yes, it is the ___ river in Taiwan. | `longest` |
 | `b-28` | Did you remember to lock the door? | Oh no, I ___ to lock it. | `forgot` |
 | `b-29` | Who broke this glass? | The cat ___ it off the table. | `knocked`, `pushed` |
 | `b-30` | Would you mind turning down the music? | Not at ___. | `all` |

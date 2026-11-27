@@ -37,7 +37,7 @@
     { id: 'b-24', lineA: 'When is your birthday?', lineB: 'It is ___ October.', accepted: ['in'], grammarTag: 'prep_month', ruleZh: '月份前面用介系詞 in。' },
     { id: 'b-25', lineA: 'When does the store open?', lineB: 'It opens ___ Monday morning.', accepted: ['on'], grammarTag: 'prep_day', ruleZh: '特定某天（Monday morning）用介系詞 on。' },
     { id: 'b-26', lineA: 'Is your sister taller than you?', lineB: 'Yes, she is taller ___ me.', accepted: ['than'], grammarTag: 'comparative', ruleZh: '比較級後面搭配連接詞 than。' },
-    { id: 'b-27', lineA: 'What is the ___ river in Taiwan?', lineB: 'The Zhuoshui River is the longest.', accepted: ['longest'], grammarTag: 'superlative', ruleZh: 'the 後面接最高級 longest。' },
+    { id: 'b-27', lineA: 'Is the Zhuoshui River long?', lineB: 'Yes, it is the ___ river in Taiwan.', accepted: ['longest'], grammarTag: 'superlative', ruleZh: 'the 後面接最高級 longest。' },
     { id: 'b-28', lineA: 'Did you remember to lock the door?', lineB: 'Oh no, I ___ to lock it.', accepted: ['forgot'], grammarTag: 'past_irreg', ruleZh: 'forget 的過去式是 forgot。' },
     { id: 'b-29', lineA: 'Who broke this glass?', lineB: 'The cat ___ it off the table.', accepted: ['knocked', 'pushed'], grammarTag: 'past_reg', ruleZh: '描述已發生的意外用過去式 knocked / pushed。' },
     { id: 'b-30', lineA: 'Would you mind turning down the music?', lineB: 'Not at ___.', accepted: ['all'], grammarTag: 'dialogue', ruleZh: '回應 Would you mind...? 表示不介意用 Not at all。' },
