@@ -2474,5 +2474,134 @@
         leitner.invalidate();
       }
     });
+
+    test('Part C & D mechanics: key rot (cap 3, 3s heal), all 4 supply crates, 扭蛋機 8 class rules, Period 3 shuffle, and 安心模式', () => {
+      const Supplies = window.App.games.class13Supplies;
+      const rules = window.App.data.classRules;
+      const game = window.App.games.class13;
+      const settings = window.App.store.settings;
+      const mountRoot = document.getElementById('test-router-root');
+      const origSafe = settings.get('safeMode');
+
+      // 1. Key Rot cap-3 + oldest heals + 3s fixed-timestep expiry
+      const rot = Supplies.createKeyRotState();
+      rot.rot('a');
+      rot.rot('b');
+      rot.rot('c');
+      assert.deepEqual(rot.getKeys(), ['a', 'b', 'c']);
+      assert.equal(rot.isLocked('a'), true);
+
+      const rot4 = rot.rot('d');
+      assert.equal(rot4.healedKey, 'a', '4th rotten key immediately heals oldest key');
+      assert.deepEqual(rot.getKeys(), ['b', 'c', 'd'], 'At most 3 keys rotten at once');
+      assert.equal(rot.isLocked('a'), false);
+      assert.equal(rot.isLocked('d'), true);
+
+      rot.tick(2950);
+      assert.equal(rot.getKeys().length, 3, 'Keys remain locked just before 3000ms');
+      rot.tick(100);
+      assert.equal(rot.getKeys().length, 0, 'Keys heal cleanly after 3000ms');
+
+      const imm = rot.rot('z', { immune: true });
+      assert.equal(imm.rotted, false, 'rotImmune blocks key rot');
+
+      // 2. Supply crates: cap 2 -> 3, bell freeze, slow -50%, fluid +3m, flashlight 2 letters
+      const sup = Supplies.createSupplyState({ rng: window.App.random.create('sup-seed') });
+      sup.grantRandom('bell');
+      sup.grantRandom('fluid');
+      assert.equal(sup.grantRandom('slow'), null, 'Default supply cap is 2');
+      sup.setCap(3);
+      assert.ok(sup.grantRandom('slow'), 'cr-extra-slot raises supply cap to 3');
+
+      const useBell = sup.useSlot(0, { distanceM: 6 });
+      assert.equal(useBell.used, true);
+      assert.equal(sup.getSpeedMultiplier(), 0, 'Bell freezes creature speed to 0');
+      sup.tick(5000);
+      assert.equal(sup.getSpeedMultiplier(), 1, 'Bell freeze expires after 5s');
+
+      const useFluid = sup.useSlot(0, { distanceM: 10, maxDistance: 12 });
+      assert.equal(useFluid.nextDistanceM, 12, 'Correction fluid pushes +3m capped at 12m');
+
+      const useSlow = sup.useSlot(0, { distanceM: 8 });
+      assert.equal(useSlow.used, true);
+      assert.equal(sup.getSpeedMultiplier(), 0.5, 'Slow clock cuts creature speed by 50%');
+      sup.tick(8000);
+      assert.equal(sup.getSpeedMultiplier(), 1, 'Slow clock expires after 8s');
+
+      sup.grantRandom('flashlight');
+      const useFlash = sup.useSlot(0, { typed: 'li', accepted: ['library'] });
+      assert.equal(useFlash.revealLetters, 'br', 'Flashlight reveals next 2 letters');
+
+      // 3. 扭蛋機 class rules bank (8 items) + safeMode/TTS filtering
+      assert.equal(rules.length, 8, 'data/class-rules.js contains 8 gacha rules');
+      const ruleIds = new Set(rules.map((r) => r.id));
+      assert.equal(ruleIds.size, 8, 'All class rule IDs are unique');
+      const safePick = Supplies.pickClassRule([], { safeMode: true, ttsAvailable: false, rng: () => 0 });
+      assert.ok(safePick && !safePick.requiresTts && !(safePick.effects && safePick.effects.speedMult > 1.2), 'Gacha respects safeMode and TTS availability');
+
+      // 4. Live game integration: key rot, hotkey '1' freeze, Period 3 shuffle, and 安心模式 slower/readable
+      try {
+        // Normal mode (safeMode: false)
+        settings.update({ safeMode: false });
+        const ctrl = game.mount(mountRoot);
+        ctrl.startSession({ skipCountdown: true });
+
+        let st = ctrl.getState();
+        assert.equal(st.scrambled, false, 'Period 1 keyboard is not shuffled');
+        const badKey = st.currentQ.accepted[0][0] === 'z' ? 'q' : 'z';
+        ctrl.handleKey(badKey);
+        st = ctrl.getState();
+        assert.ok(st.rottenKeys.includes(badKey), 'Wrong keystroke triggers key rot in normal mode');
+
+        // Typing locked rotten key is ignored without pulling distance again
+        const distBeforeLocked = st.distanceM;
+        ctrl.handleKey(badKey);
+        assert.equal(ctrl.getState().distanceM, distBeforeLocked, 'Locked rotten key ignored on physical keyboard');
+
+        // Fixed timestep heals rotten key after 3050ms
+        ctrl.stepSimulation(3100);
+        assert.equal(ctrl.getState().rottenKeys.length, 0, 'Fixed-timestep simulation heals rotten keys after 3s');
+
+        // Grant bell & trigger via physical hotkey '1' -> freezes creature across 2000ms step
+        ctrl.grantSupply('bell');
+        const distBeforeFreeze = ctrl.getState().distanceM;
+        ctrl.handleKey('1');
+        ctrl.stepSimulation(2000);
+        assert.equal(ctrl.getState().distanceM, distBeforeFreeze, 'Hotkey 1 activates bell freeze so distance stays frozen');
+
+        // Period 3 enables scrambled keyboard in normal mode
+        ctrl.beginPeriod(3, null);
+        assert.equal(ctrl.getState().scrambled, true, 'Period 3 scrambles on-screen keyboard in normal mode');
+        assert.ok(mountRoot.querySelector('[data-c13-scrambled="true"]'), 'Scrambled badge shown in Period 3');
+
+        const normalSpeedP3 = ctrl.getState().effectiveSpeed;
+        game.unmount();
+
+        // 安心模式 (safeMode: true): slower speed (0.7x), 12s timeout, no key rot, no shuffle, no flicker
+        settings.update({ safeMode: true });
+        const safeCtrl = game.mount(mountRoot);
+        safeCtrl.startSession({ skipCountdown: true });
+        safeCtrl.beginPeriod(3, null);
+        const safeSt = safeCtrl.getState();
+        assert.equal(safeSt.safeMode, true);
+        assert.equal(safeSt.effectiveTimeoutMs, 12000, 'Safe mode extends question timeout to 12s');
+        assert.ok(safeSt.effectiveSpeed < normalSpeedP3, 'Safe mode slows creature approach speed');
+        assert.equal(safeSt.scrambled, false, 'Safe mode disables scrambled keyboard even in Period 3');
+        assert.equal(mountRoot.querySelector('.c13-flicker'), null, 'Safe mode disables fluorescent flicker');
+        assert.ok(mountRoot.querySelector('[data-safe-mode="true"]'), 'Safe mode styling active');
+
+        const badSafeKey = safeSt.currentQ.accepted[0][0] === 'z' ? 'q' : 'z';
+        safeCtrl.handleKey(badSafeKey);
+        assert.equal(safeCtrl.getState().rottenKeys.length, 0, 'Safe mode disables key rot');
+      } finally {
+        game.unmount();
+        settings.update({ safeMode: origSafe });
+        window.App.store.db.remove('as.v1.attempts');
+        window.App.store.db.remove('as.v1.sessions');
+        window.App.store.db.remove('as.v1.progress');
+        window.App.store.attempts.invalidate();
+        window.App.store.leitner.invalidate();
+      }
+    });
   });
 })();

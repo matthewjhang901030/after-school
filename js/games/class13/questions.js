@@ -154,22 +154,23 @@
     let broadcastIdx = 0;
     let seq = 0;
 
-    function _makeMeaningQuestion(card, isHard) {
+    function _makeMeaningQuestion(card, isHard, isAudioOnly) {
       const accepted = [_normAnswer(card.word)];
       return {
         id: `q-m-${++seq}`,
-        type: 'meaning',
+        type: isAudioOnly ? 'audio' : 'meaning',
         skill: 'vocab',
         cardId: card.id,
         word: card.word,
-        promptBadge: '單字',
-        promptMain: card.zh,
-        promptSub: card.pos || '',
+        promptBadge: isAudioOnly ? '聽力' : '單字',
+        promptMain: isAudioOnly ? '♪ 聽發音拼寫單字' : card.zh,
+        promptSub: isAudioOnly ? (card.pos || '') : (card.pos || ''),
         accepted,
         displayAnswer: card.word,
         meaningZh: card.zh,
         ruleZh: card.hasRealExample && card.example ? card.example : null,
         isHard: Boolean(isHard),
+        audioOnly: Boolean(isAudioOnly),
       };
     }
 
@@ -213,13 +214,16 @@
       };
     }
 
-    function next(period) {
+    function next(period, opts) {
       const p = Math.max(1, Math.floor(Number(period) || 1));
+      const o = opts || {};
+      const hardEvery = Number.isFinite(o.hardEvery) && o.hardEvery > 0 ? Math.floor(o.hardEvery) : 6;
       const count = seq + 1;
-      const isHard = count % 6 === 0;
+      const isHard = count % hardEvery === 0;
       const roll = rng();
 
-      // Determine type mix for the period
+      // Determine type mix for the period (Section 4.3.2):
+      // P1: meaning + tense | P2: + broadcast | P3+: + audio-only vocab (when TTS available)
       let chosenType = 'meaning';
       if (p >= 2 && broadcasts.length && roll >= 0.75) {
         chosenType = 'broadcast';
@@ -240,7 +244,8 @@
       if (words.length) {
         const card = words[wordIdx % words.length];
         wordIdx++;
-        return _makeMeaningQuestion(card, isHard);
+        const wantAudioOnly = Boolean(o.ttsAvailable) && (Boolean(o.forceAudioOnly) || (p >= 3 && !o.safeMode && roll < 0.18));
+        return _makeMeaningQuestion(card, isHard, wantAudioOnly);
       }
       if (tenses.length) {
         const item = tenses[tenseIdx % tenses.length];

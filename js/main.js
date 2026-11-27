@@ -175,9 +175,12 @@
       scripts: [
         'data/tense.js',
         'data/broadcast.js',
+        'data/class-rules.js',
         'js/ui/keyboard.js',
         'js/games/engine.js',
         'js/games/class13/questions.js',
+        'js/games/class13/supplies.js',
+        'js/games/class13/atmosphere.js',
         'js/games/class13/creature.js',
         'js/games/class13/index.js',
       ],

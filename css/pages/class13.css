@@ -112,14 +112,140 @@
   75% { transform: translateX(4px); }
 }
 
+/* Subtle fluorescent flicker strictly < 0.5 flashes/sec (well below WCAG 3/sec limit) */
+@keyframes c13-flicker {
+  0%, 92%, 100% { opacity: 1; }
+  95% { opacity: 0.93; }
+}
+
 .c13-stage.is-shaking {
   animation: c13-shake 200ms ease-in-out;
 }
 
+.c13-stage.c13-flicker .c13-corridor-wrap {
+  animation: c13-flicker 2.4s linear infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .c13-stage.is-shaking {
+  .c13-stage.is-shaking,
+  .c13-stage.c13-flicker .c13-corridor-wrap {
     animation: none;
   }
+}
+
+/* 安心模式: calm stationery readability, zero horror visuals */
+.c13-stage[data-safe-mode="true"] .c13-corridor-wrap {
+  background: var(--bg);
+  border-color: var(--line-strong);
+}
+
+.c13-stage[data-safe-mode="true"] .c13-dist-value {
+  color: var(--ink);
+}
+
+.c13-stage[data-safe-mode="true"] .c13-proj-main {
+  font-size: clamp(24px, 3.8vw, 32px);
+}
+
+.c13-pa-strip {
+  padding: 6px 12px;
+  border-left: 3px solid var(--line-strong);
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-small);
+  color: var(--muted);
+}
+
+.c13-rule-badge,
+.c13-safe-badge {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--line-strong);
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.c13-scramble-tag {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--tab-dialogue);
+  color: var(--ink);
+  background: var(--bg);
+}
+
+.c13-supply-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.c13-supply-slots {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.c13-supply-btn {
+  padding: 6px 12px;
+  font-size: var(--text-small);
+}
+
+.c13-supply-empty {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px dashed var(--line-strong);
+  color: var(--muted);
+}
+
+.c13-effect-status {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--correct);
+}
+
+.c13-audio-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+}
+
+.c13-gacha-card {
+  margin: var(--space-4) auto 0;
+  max-width: 420px;
+  padding: var(--space-4);
+  border: 1.5px solid var(--ink);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  text-align: left;
+}
+
+.c13-gacha-label {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.c13-gacha-title {
+  font-weight: 700;
+  font-size: var(--text-body);
+  color: var(--ink);
 }
 
 .c13-corridor-wrap {
